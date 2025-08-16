@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎾 Disk Tennis Game - Preview</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 5px rgba(255, 215, 0, 0.5); }
+            50% { box-shadow: 0 0 20px rgba(255, 215, 0, 0.8); }
+        }
+        
+        .glow-animation {
+            animation: glow 2s ease-in-out infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .float-animation {
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-20px); }
+            60% { transform: translateY(-10px); }
+        }
+        
+        .bounce-animation {
+            animation: bounce 2s infinite;
+        }
+        
+        .joystick-container {
+            touch-action: none;
+        }
+        
+        canvas {
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-b from-blue-500 via-purple-500 to-pink-500 min-h-screen">
+    <div class="flex flex-col items-center justify-center min-h-screen px-4 py-2">
+        
+        <!-- Заголовок -->
+        <div class="text-center mb-3">
+            <h1 class="text-3xl md:text-4xl font-bold text-white mb-2 drop-shadow-xl float-animation">
+                🎾 DISK TENNIS 🎾
+            </h1>
+            <p class="text-sm text-white drop-shadow">Тап по екрану для подачі м'яча!</p>
+        </div>
+        
+        <!-- Ігрове поле -->
+        <div class="relative mb-4 shadow-2xl rounded-xl overflow-hidden border-4 border-yellow-400 glow-animation">
+            <canvas id="gameCanvas" width="400" height="280" class="cursor-pointer" style="max-width: 100vw; height: auto;"></canvas>
+        </div>
+        
+        <!-- Кнопки керування -->
+        <div class="flex gap-4 mb-4">
+            <button id="startBtn" class="px-6 py-3 bg-green-500 text-white rounded-full font-bold text-lg shadow-xl hover:bg-green-600 transition-all transform hover:scale-105">
+                🚀 СТАРТ
+            </button>
+            
+            <button id="resetBtn" class="px-6 py-3 bg-red-500 text-white rounded-full font-bold text-lg shadow-xl hover:bg-red-600 transition-all transform hover:scale-105">
+                🔄 РЕСТАРТ
+            </button>
+        </div>
+        
+        <!-- Керування -->
+        <div class="flex items-center gap-6 mb-4">
+            <!-- Джойстик -->
+            <div class="text-center">
+                <div id="joystick" class="relative bg-gradient-to-b from-gray-700 to-gray-900 rounded-full border-4 border-yellow-400 touch-none shadow-xl joystick-container" style="width: 80px; height: 80px;">
+                    <div id="joystickKnob" class="absolute bg-gradient-to-b from-blue-400 to-blue-600 rounded-full border-3 border-white transition-all duration-75 shadow-lg" style="width: 30px; height: 30px; left: 50%; top: 50%; transform: translate(-50%, -50%);"></div>
+                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <span class="text-yellow-300 font-bold text-xs">🕹️</span>
+                    </div>
+                </div>
+                <p class="text-xs text-white mt-1">РУХ</p>
+            </div>
+            
+            <!-- Кнопка стрибка -->
+            <div class="text-center">
+                <button id="jumpBtn" class="w-16 h-16 rounded-full border-4 border-white font-bold text-lg shadow-xl transition-all transform bg-blue-500 hover:bg-blue-600 hover:scale-105">
+                    ⬆️
+                </button>
+                <p class="text-xs text-white mt-1">СТРИБОК</p>
+            </div>
+            
+            <!-- Кнопка удару -->
+            <div class="text-center">
+                <button id="hitBtn" class="w-16 h-16 rounded-full border-4 border-white font-bold text-lg shadow-xl transition-all transform bg-green-500 hover:bg-green-600 hover:scale-105">
+                    💥
+                </button>
+                <p class="text-xs text-white mt-1">УДАР</p>
+            </div>
+        </div>
+        
+        <!-- Інструкції -->
+        <div class="text-center text-white text-sm opacity-80">
+            <p>🎮 Використовуйте джойстик для руху</p>
+            <p>⬆️ Стрибайте для досягнення високих м'ячів</p>
+            <p>💥 Потужний удар для швидких подач</p>
+            <p>👆 Тап по екрану для подачі м'яча</p>
+        </div>
+        
+        <!-- Статистика -->
+        <div class="mt-6 bg-white bg-opacity-10 rounded-lg p-4 text-white">
+            <h3 class="text-lg font-bold mb-2">📊 Статистика гри</h3>
+            <div class="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                    <p>🎯 Рахунок: <span id="score">0 : 0</span></p>
+                    <p>⚡ Швидкість: <span id="speed">1.0x</span></p>
+                </div>
+                <div>
+                    <p>🎾 Подачі: <span id="serves">0</span></p>
+                    <p>🏆 Рекорд: <span id="record">0</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Константи
+        const CANVAS_WIDTH = 400;
+        const CANVAS_HEIGHT = 280;
+        const BALL_SIZE = 10;
+        const PLAYER_SIZE = 32;
+        const RACKET_WIDTH = 50;
+        const RACKET_HEIGHT = 8;
+        const GROUND_Y = CANVAS_HEIGHT - 80;
+        const JOYSTICK_SIZE = 80;
+        const KNOB_SIZE = 30;
+
+        // Стан гри
+        let gameState = {
+            ball: { 
+                x: 200, y: 180, dx: 0, dy: 0, 
+                trail: [], inPlay: false, gravity: 0.3,
+                bounce: 0.8, spin: 0
+            },
+            player: { 
+                x: 50, y: GROUND_Y, velocityY: 0,
+                jumping: false, onGround: true, racketAngle: 0,
+                hitAnimation: 0
+            },
+            ai: { 
+                x: 350, y: GROUND_Y, velocityY: 0, onGround: true,
+                jumping: false, racketAngle: 0, hitAnimation: 0
+            },
+            playerScore: 0,
+            aiScore: 0,
+            gameRunning: false,
+            lastHit: null,
+            gameSpeed: 1
+        };
+
+        let controls = {
+            joystick: { active: false, centerX: 0, centerY: 0, knobX: 0, knobY: 0, directionX: 0, directionY: 0 },
+            jumpPressed: false,
+            hitPressed: false
+        };
+
+        // Canvas та контекст
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Елементи керування
+        const joystick = document.getElementById('joystick');
+        const joystickKnob = document.getElementById('joystickKnob');
+        const startBtn = document.getElementById('startBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const jumpBtn = document.getElementById('jumpBtn');
+        const hitBtn = document.getElementById('hitBtn');
+
+        // Функція малювання
+        function drawGame() {
+            // Очищення канвасу
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            
+            // Покращений фон з градієнтом
+            const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+            gradient.addColorStop(0, '#1e3a8a');
+            gradient.addColorStop(0.3, '#3b82f6');
+            gradient.addColorStop(0.7, '#60a5fa');
+            gradient.addColorStop(1, '#10b981');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            
+            // Хмари
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            for (let i = 0; i < 5; i++) {
+                const x = (i * 100 + Date.now() * 0.01) % (CANVAS_WIDTH + 100) - 50;
+                const y = 30 + Math.sin(i) * 10;
+                ctx.beginPath();
+                ctx.arc(x, y, 20, 0, Math.PI * 2);
+                ctx.arc(x + 25, y, 15, 0, Math.PI * 2);
+                ctx.arc(x + 45, y, 20, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Покращений корт
+            const courtGradient = ctx.createLinearGradient(0, GROUND_Y + 30, 0, CANVAS_HEIGHT);
+            courtGradient.addColorStop(0, '#166534');
+            courtGradient.addColorStop(1, '#15803d');
+            ctx.fillStyle = courtGradient;
+            ctx.fillRect(0, GROUND_Y + 30, CANVAS_WIDTH, 50);
+            
+            // Лінії корту
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(0, GROUND_Y + 55);
+            ctx.lineTo(CANVAS_WIDTH, GROUND_Y + 55);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Сітка
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(CANVAS_WIDTH/2 - 3, GROUND_Y - 30, 6, 60);
+            
+            // Тіні сітки
+            for(let i = 0; i < 20; i++) {
+                const alpha = 0.3 - (i * 0.01);
+                ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+                ctx.fillRect(CANVAS_WIDTH/2 - 10 + Math.random()*20, GROUND_Y - 25 + i*3, 3, 1);
+            }
+            
+            // След м'яча
+            gameState.ball.trail.forEach((point, index) => {
+                const alpha = (index + 1) / gameState.ball.trail.length * 0.8;
+                const size = BALL_SIZE * alpha * 1.5;
+                
+                ctx.shadowColor = '#ffff00';
+                ctx.shadowBlur = 10;
+                ctx.fillStyle = `rgba(255,255,100,${alpha * 0.5})`;
+                ctx.beginPath();
+                ctx.arc(point.x + BALL_SIZE/2, point.y + BALL_SIZE/2, size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = `rgba(255,255,100,${alpha})`;
+                ctx.beginPath();
+                ctx.arc(point.x + BALL_SIZE/2, point.y + BALL_SIZE/2, size/2, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            // М'яч
+            ctx.save();
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = gameState.ball.inPlay ? 15 : 8;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            
+            const ballGradient = ctx.createRadialGradient(
+                gameState.ball.x + BALL_SIZE/2 - 2, gameState.ball.y + BALL_SIZE/2 - 2, 0,
+                gameState.ball.x + BALL_SIZE/2, gameState.ball.y + BALL_SIZE/2, BALL_SIZE/2
+            );
+            ballGradient.addColorStop(0, '#ffffff');
+            ballGradient.addColorStop(0.3, '#FFFF00');
+            ballGradient.addColorStop(1, '#FFD700');
+            ctx.fillStyle = ballGradient;
+            
+            ctx.beginPath();
+            ctx.arc(gameState.ball.x + BALL_SIZE/2, gameState.ball.y + BALL_SIZE/2, BALL_SIZE/2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            if (gameState.ball.inPlay) {
+                ctx.shadowBlur = 20;
+                ctx.fillStyle = 'rgba(255, 255, 100, 0.3)';
+                ctx.beginPath();
+                ctx.arc(gameState.ball.x + BALL_SIZE/2, gameState.ball.y + BALL_SIZE/2, BALL_SIZE, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            ctx.restore();
+            
+            if (!gameState.ball.inPlay) {
+                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 1;
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                ctx.strokeText('ТАП ДЛЯ ПОДАЧІ', gameState.ball.x + BALL_SIZE/2, gameState.ball.y - 15);
+                ctx.fillText('ТАП ДЛЯ ПОДАЧІ', gameState.ball.x + BALL_SIZE/2, gameState.ball.y - 15);
+            }
+            
+            // Гравець
+            ctx.save();
+            ctx.translate(gameState.player.x, gameState.player.y);
+            
+            // Тінь гравця
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(0, 20, 15, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ракетка гравця
+            ctx.save();
+            ctx.translate(20, -10);
+            ctx.rotate(gameState.player.racketAngle * Math.PI / 180);
+            
+            const handleGradient = ctx.createLinearGradient(-15, -2, 15, 2);
+            handleGradient.addColorStop(0, '#8B4513');
+            handleGradient.addColorStop(0.5, '#A0522D');
+            handleGradient.addColorStop(1, '#8B4513');
+            ctx.fillStyle = handleGradient;
+            ctx.fillRect(-15, -2, 30, 4);
+            
+            ctx.fillStyle = '#FF4444';
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 5; i++) {
+                const diskGradient = ctx.createRadialGradient(-20 + i * 10, 0, 0, -20 + i * 10, 0, 6);
+                diskGradient.addColorStop(0, '#FF6666');
+                diskGradient.addColorStop(1, '#FF4444');
+                ctx.fillStyle = diskGradient;
+                
+                ctx.beginPath();
+                ctx.arc(-20 + i * 10, 0, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+            
+            // Тіло гравця
+            const playerGradient = ctx.createLinearGradient(-15, -15, 15, 10);
+            playerGradient.addColorStop(0, controls.hitPressed ? '#0056CC' : '#4169E1');
+            playerGradient.addColorStop(1, controls.hitPressed ? '#003399' : '#1E40AF');
+            ctx.fillStyle = playerGradient;
+            ctx.fillRect(-15, -15, 30, 25);
+            
+            // Голова
+            const headGradient = ctx.createRadialGradient(0, -20, 0, 0, -20, 12);
+            headGradient.addColorStop(0, '#FFE4B5');
+            headGradient.addColorStop(1, '#DEB887');
+            ctx.fillStyle = headGradient;
+            ctx.beginPath();
+            ctx.arc(0, -20, 12, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Очі
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(-3, -22, 2, 0, Math.PI * 2);
+            ctx.arc(3, -22, 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ефект удару
+            if (gameState.player.hitAnimation > 0) {
+                const scale = 1 + (gameState.player.hitAnimation / 10) * 0.3;
+                ctx.save();
+                ctx.scale(scale, scale);
+                ctx.fillStyle = '#FFD700';
+                ctx.font = 'bold 14px Arial';
+                ctx.fillText('POW!', 25, -25);
+                ctx.restore();
+            }
+            
+            ctx.restore();
+            
+            // ШІ
+            ctx.save();
+            ctx.translate(gameState.ai.x, gameState.ai.y);
+            
+            // Тінь ШІ
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(0, 20, 15, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ракетка ШІ
+            ctx.save();
+            ctx.translate(-20, -10);
+            ctx.rotate(gameState.ai.racketAngle * Math.PI / 180);
+            
+            const aiHandleGradient = ctx.createLinearGradient(-15, -2, 15, 2);
+            aiHandleGradient.addColorStop(0, '#8B4513');
+            aiHandleGradient.addColorStop(0.5, '#A0522D');
+            aiHandleGradient.addColorStop(1, '#8B4513');
+            ctx.fillStyle = aiHandleGradient;
+            ctx.fillRect(-15, -2, 30, 4);
+            
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 5; i++) {
+                const aiDiskGradient = ctx.createRadialGradient(-20 + i * 10, 0, 0, -20 + i * 10, 0, 6);
+                aiDiskGradient.addColorStop(0, '#66FF66');
+                aiDiskGradient.addColorStop(1, '#44FF44');
+                ctx.fillStyle = aiDiskGradient;
+                
+                ctx.beginPath();
+                ctx.arc(-20 + i * 10, 0, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+            
+            // Тіло ШІ
+            const aiGradient = ctx.createLinearGradient(-15, -15, 15, 10);
+            aiGradient.addColorStop(0, '#DC143C');
+            aiGradient.addColorStop(1, '#B22222');
+            ctx.fillStyle = aiGradient;
+            ctx.fillRect(-15, -15, 30, 25);
+            
+            // Голова ШІ
+            const aiHeadGradient = ctx.createRadialGradient(0, -20, 0, 0, -20, 12);
+            aiHeadGradient.addColorStop(0, '#FFE4B5');
+            aiHeadGradient.addColorStop(1, '#DEB887');
+            ctx.fillStyle = aiHeadGradient;
+            ctx.beginPath();
+            ctx.arc(0, -20, 12, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Очі ШІ
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(-3, -22, 2, 0, Math.PI * 2);
+            ctx.arc(3, -22, 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ефект удару ШІ
+            if (gameState.ai.hitAnimation > 0) {
+                const scale = 1 + (gameState.ai.hitAnimation / 10) * 0.3;
+                ctx.save();
+                ctx.scale(scale, scale);
+                ctx.fillStyle = '#FFD700';
+                ctx.font = 'bold 14px Arial';
+                ctx.fillText('HIT!', -35, -25);
+                ctx.restore();
+            }
+            
+            ctx.restore();
+            
+            // Рахунок
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 4;
+            ctx.font = 'bold 32px Arial';
+            ctx.textAlign = 'center';
+            ctx.strokeText(`${gameState.playerScore} : ${gameState.aiScore}`, CANVAS_WIDTH / 2, 40);
+            
+            const scoreGradient = ctx.createLinearGradient(CANVAS_WIDTH / 2 - 50, 20, CANVAS_WIDTH / 2 + 50, 20);
+            scoreGradient.addColorStop(0, '#FFD700');
+            scoreGradient.addColorStop(0.5, '#FFFFFF');
+            scoreGradient.addColorStop(1, '#FFD700');
+            ctx.fillStyle = scoreGradient;
+            ctx.fillText(`${gameState.playerScore} : ${gameState.aiScore}`, CANVAS_WIDTH / 2, 40);
+            
+            // Заголовок
+            ctx.fillStyle = '#FF6B6B';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.font = 'bold 20px Arial';
+            ctx.strokeText('🎾 DISK TENNIS 🎾', CANVAS_WIDTH / 2, 20);
+            ctx.fillText('🎾 DISK TENNIS 🎾', CANVAS_WIDTH / 2, 20);
+        }
+
+        // Оновлення статистики
+        function updateStats() {
+            document.getElementById('score').textContent = `${gameState.playerScore} : ${gameState.aiScore}`;
+            document.getElementById('speed').textContent = `${gameState.gameSpeed.toFixed(1)}x`;
+            document.getElementById('serves').textContent = gameState.playerScore + gameState.aiScore;
+            document.getElementById('record').textContent = Math.max(gameState.playerScore, gameState.aiScore);
+        }
+
+        // Ігровий цикл
+        function gameLoop() {
+            if (!gameState.gameRunning) return;
+
+            // Рух м'яча
+            if (gameState.ball.inPlay) {
+                gameState.ball.x += gameState.ball.dx;
+                gameState.ball.y += gameState.ball.dy;
+                gameState.ball.dy += gameState.ball.gravity;
+                
+                // Відбиття від стін
+                if (gameState.ball.x <= 0 || gameState.ball.x >= CANVAS_WIDTH - BALL_SIZE) {
+                    gameState.ball.dx = -gameState.ball.dx * 0.9;
+                }
+                
+                // Відбиття від землі
+                if (gameState.ball.y >= GROUND_Y + 20) {
+                    gameState.ball.dy = -gameState.ball.dy * gameState.ball.bounce;
+                    gameState.ball.y = GROUND_Y + 20;
+                    gameState.ball.dx *= 0.95;
+                }
+                
+                // Відбиття від верху
+                if (gameState.ball.y <= 0) {
+                    gameState.ball.dy = -gameState.ball.dy;
+                    gameState.ball.y = 0;
+                }
+                
+                // След м'яча
+                gameState.ball.trail.push({ x: gameState.ball.x, y: gameState.ball.y });
+                if (gameState.ball.trail.length > 6) {
+                    gameState.ball.trail.shift();
+                }
+            }
+            
+            // Рух гравця
+            if (controls.joystick.directionX !== 0) {
+                gameState.player.x = Math.max(20, Math.min(180, gameState.player.x + controls.joystick.directionX * 4));
+            }
+            
+            // Стрибок
+            if (controls.jumpPressed && gameState.player.onGround) {
+                gameState.player.velocityY = -12;
+                gameState.player.jumping = true;
+                gameState.player.onGround = false;
+            }
+            
+            // Гравітація гравця
+            if (!gameState.player.onGround) {
+                gameState.player.velocityY += 0.6;
+                gameState.player.y += gameState.player.velocityY;
+                
+                if (gameState.player.y >= GROUND_Y) {
+                    gameState.player.y = GROUND_Y;
+                    gameState.player.velocityY = 0;
+                    gameState.player.onGround = true;
+                    gameState.player.jumping = false;
+                }
+            }
+            
+            // Анімація удару гравця
+            if (gameState.player.hitAnimation > 0) {
+                gameState.player.hitAnimation--;
+            }
+            
+            // Простий ШІ
+            if (gameState.ball.inPlay && gameState.ball.dx > 0) {
+                const ballDistance = Math.abs(gameState.ball.x - gameState.ai.x);
+                const targetX = gameState.ball.x - 30;
+                
+                if (ballDistance > 30) {
+                    if (gameState.ai.x < targetX && gameState.ai.x < 380) {
+                        gameState.ai.x += 2.5;
+                    } else if (gameState.ai.x > targetX && gameState.ai.x > 220) {
+                        gameState.ai.x -= 2.5;
+                    }
+                }
+                
+                if (gameState.ball.y < GROUND_Y - 40 && ballDistance < 60 && gameState.ai.onGround && Math.random() > 0.3) {
+                    gameState.ai.velocityY = -10;
+                    gameState.ai.jumping = true;
+                    gameState.ai.onGround = false;
+                }
+            }
+            
+            // Гравітація ШІ
+            if (!gameState.ai.onGround) {
+                gameState.ai.velocityY += 0.6;
+                gameState.ai.y += gameState.ai.velocityY;
+                
+                if (gameState.ai.y >= GROUND_Y) {
+                    gameState.ai.y = GROUND_Y;
+                    gameState.ai.velocityY = 0;
+                    gameState.ai.onGround = true;
+                    gameState.ai.jumping = false;
+                }
+            }
+            
+            // Анімація удару ШІ
+            if (gameState.ai.hitAnimation > 0) {
+                gameState.ai.hitAnimation--;
+            }
+            
+            // Зіткнення з ракеткою гравця
+            const playerRacketX = gameState.player.x + 20;
+            const playerRacketY = gameState.player.y - 10;
+            
+            if (gameState.ball.inPlay &&
+                gameState.ball.x >= playerRacketX - RACKET_WIDTH/2 && 
+                gameState.ball.x <= playerRacketX + RACKET_WIDTH/2 &&
+                gameState.ball.y >= playerRacketY - RACKET_HEIGHT/2 && 
+                gameState.ball.y <= playerRacketY + RACKET_HEIGHT/2 &&
+                gameState.lastHit !== 'player') {
+                
+                const power = controls.hitPressed ? 1.5 : 1.0;
+                gameState.ball.dx = Math.abs(gameState.ball.dx) * power + 3;
+                gameState.ball.dy = (gameState.ball.dy - 2) * power;
+                gameState.ball.spin = controls.hitPressed ? 0.5 : 0;
+                gameState.lastHit = 'player';
+                
+                gameState.player.racketAngle = -45;
+                gameState.player.hitAnimation = 10;
+            }
+            
+            // Зіткнення з ракеткою ШІ
+            const aiRacketX = gameState.ai.x - 20;
+            const aiRacketY = gameState.ai.y - 10;
+            
+            if (gameState.ball.inPlay &&
+                gameState.ball.x >= aiRacketX - RACKET_WIDTH/2 && 
+                gameState.ball.x <= aiRacketX + RACKET_WIDTH/2 &&
+                gameState.ball.y >= aiRacketY - RACKET_HEIGHT/2 && 
+                gameState.ball.y <= aiRacketY + RACKET_HEIGHT/2 &&
+                gameState.lastHit !== 'ai') {
+                
+                gameState.ball.dx = -Math.abs(gameState.ball.dx) - 2;
+                gameState.ball.dy = (gameState.ball.dy - 1) * 0.8;
+                gameState.lastHit = 'ai';
+                
+                gameState.ai.racketAngle = 45;
+                gameState.ai.hitAnimation = 10;
+            }
+            
+            // Повернення ракеток
+            gameState.player.racketAngle *= 0.8;
+            gameState.ai.racketAngle *= 0.8;
+            
+            // Голи
+            if (gameState.ball.x <= -20) {
+                gameState.aiScore += 1;
+                gameState.ball = { x: 100, y: 150, dx: 0, dy: 0, trail: [], inPlay: false, gravity: 0.3, bounce: 0.8, spin: 0 };
+                gameState.lastHit = null;
+            } else if (gameState.ball.x >= CANVAS_WIDTH + 20) {
+                gameState.playerScore += 1;
+                gameState.ball = { x: 300, y: 150, dx: 0, dy: 0, trail: [], inPlay: false, gravity: 0.3, bounce: 0.8, spin: 0 };
+                gameState.lastHit = null;
+            }
+            
+            updateStats();
+        }
+
+        // Обробка подій
+        canvas.addEventListener('click', (e) => {
+            if (!gameState.gameRunning) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
+            const y = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
+            
+            if (!gameState.ball.inPlay) {
+                const dx = (x - gameState.ball.x) * 0.15;
+                const dy = (y - gameState.ball.y) * 0.15;
+                
+                gameState.ball.dx = Math.max(-8, Math.min(8, dx));
+                gameState.ball.dy = Math.max(-6, Math.min(2, dy));
+                gameState.ball.inPlay = true;
+            }
+        });
+
+        // Джойстик
+        joystick.addEventListener('mousedown', (e) => {
+            if (!gameState.gameRunning) return;
+            
+            const rect = joystick.getBoundingClientRect();
+            controls.joystick.centerX = rect.left + rect.width / 2;
+            controls.joystick.centerY = rect.top + rect.height / 2;
+            controls.joystick.active = true;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!controls.joystick.active || !gameState.gameRunning) return;
+            
+            const deltaX = e.clientX - controls.joystick.centerX;
+            const deltaY = e.clientY - controls.joystick.centerY;
+            const maxDistance = JOYSTICK_SIZE / 2 - KNOB_SIZE / 2;
+            
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            const clampedDistance = Math.min(distance, maxDistance);
+            const angle = Math.atan2(deltaY, deltaX);
+            
+            const clampedX = Math.cos(angle) * clampedDistance;
+            const clampedY = Math.sin(angle) * clampedDistance;
+            
+            controls.joystick.knobX = clampedX;
+            controls.joystick.knobY = clampedY;
+            
+            let directionX = 0, directionY = 0;
+            if (Math.abs(clampedX) > 10) directionX = clampedX > 0 ? 1 : -1;
+            if (Math.abs(clampedY) > 10) directionY = clampedY > 0 ? 1 : -1;
+            
+            controls.joystick.directionX = directionX;
+            controls.joystick.directionY = directionY;
+            
+            joystickKnob.style.transform = `translate(calc(-50% + ${clampedX}px), calc(-50% + ${clampedY}px))`;
+        });
+
+        document.addEventListener('mouseup', () => {
+            controls.joystick.active = false;
+            controls.joystick.knobX = 0;
+            controls.joystick.knobY = 0;
+            controls.joystick.directionX = 0;
+            controls.joystick.directionY = 0;
+            joystickKnob.style.transform = 'translate(-50%, -50%)';
+        });
+
+        // Кнопки
+        startBtn.addEventListener('click', () => {
+            gameState.gameRunning = true;
+            gameState.ball = { x: 100, y: 150, dx: 0, dy: 0, trail: [], inPlay: false, gravity: 0.3, bounce: 0.8, spin: 0 };
+            startBtn.textContent = '🔥 ГРАЄ';
+            startBtn.disabled = true;
+        });
+
+        resetBtn.addEventListener('click', () => {
+            gameState = {
+                ball: { x: 200, y: 180, dx: 0, dy: 0, trail: [], inPlay: false, gravity: 0.3, bounce: 0.8, spin: 0 },
+                player: { x: 50, y: GROUND_Y, velocityY: 0, jumping: false, onGround: true, racketAngle: 0, hitAnimation: 0 },
+                ai: { x: 350, y: GROUND_Y, velocityY: 0, onGround: true, jumping: false, racketAngle: 0, hitAnimation: 0 },
+                playerScore: 0,
+                aiScore: 0,
+                gameRunning: false,
+                lastHit: null,
+                gameSpeed: 1
+            };
+            startBtn.textContent = '🚀 СТАРТ';
+            startBtn.disabled = false;
+            updateStats();
+        });
+
+        jumpBtn.addEventListener('mousedown', () => {
+            controls.jumpPressed = true;
+            jumpBtn.classList.add('scale-110', 'bg-yellow-400');
+            setTimeout(() => {
+                controls.jumpPressed = false;
+                jumpBtn.classList.remove('scale-110', 'bg-yellow-400');
+            }, 150);
+        });
+
+        hitBtn.addEventListener('mousedown', () => {
+            controls.hitPressed = true;
+            hitBtn.classList.add('scale-110', 'bg-red-400');
+            setTimeout(() => {
+                controls.hitPressed = false;
+                hitBtn.classList.remove('scale-110', 'bg-red-400');
+            }, 200);
+        });
+
+        // Основний цикл анімації
+        function animate() {
+            drawGame();
+            gameLoop();
+            requestAnimationFrame(animate);
+        }
+
+        // Запуск анімації
+        animate();
+        updateStats();
+    </script>
+</body>
+</html>
