@@ -831,9 +831,19 @@ function init() {
   // налаштування агентів (Ollama токен)
   $("agentSettingsBtn").onclick = openAgentSettings;
   $("asClose").onclick = () => ($("agentSettings").hidden = true);
+  $("asSkip").onclick = () => ($("agentSettings").hidden = true);
   $("agentSettings").onclick = (e) => { if (e.target === $("agentSettings")) $("agentSettings").hidden = true; };
   $("asTest").onclick = testAgentKey;
   $("asSave").onclick = saveAgentSettings;
+
+  // Escape закриває будь-яке вікно
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      ["agentSettings", "helpModal", "lightbox"].forEach((id) => {
+        const elx = $(id); if (elx) elx.hidden = true;
+      });
+    }
+  });
 
   // довідка
   $("helpBtn").onclick = () => ($("helpModal").hidden = false);
