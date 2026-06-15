@@ -39,6 +39,9 @@ from pathlib import Path
 # 0. НАЛАШТУВАННЯ — змініть за потреби
 # ---------------------------------------------------------------------------
 REPO_URL = "https://github.com/Hvkki/motorproject.git"  # <- ваш репозиторій
+# Гілка з проєктом. Поки PR #3 не злито, проєкт на гілці "add-mamina-studia".
+# Після злиття можна поставити "main" або None (гілка за замовчуванням).
+REPO_BRANCH = "add-mamina-studia"
 APP_DIRNAME = "motorproject"
 PORT = 7860
 
@@ -60,6 +63,9 @@ NGROK_TOKEN = _get_secret("NGROK_TOKEN")
 IDEOGRAM_API_KEY = _get_secret("IDEOGRAM_API_KEY")
 # Необовʼязково: ключ Ollama Cloud для агентів-помічників
 OLLAMA_API_KEY = _get_secret("OLLAMA_API_KEY")
+# Необовʼязково: токен GitHub — ПОТРІБЕН лише якщо репозиторій ПРИВАТНИЙ.
+# Створіть тут: https://github.com/settings/tokens (права: repo / read-only).
+GITHUB_TOKEN = _get_secret("GITHUB_TOKEN")
 
 assert HF_TOKEN, "Додайте секрет HF_TOKEN (токен Hugging Face)."
 assert NGROK_TOKEN, "Додайте секрет NGROK_TOKEN (токен ngrok)."
@@ -107,8 +113,33 @@ def locate_app() -> Path:
             raise SystemExit(
                 "❌ Вкажіть REPO_URL угорі скрипту або додайте проєкт як Kaggle-датасет."
             )
-        sh(f"git clone --depth 1 {REPO_URL} {target}")
+        _clone_repo(target)
     return target
+
+
+def _clone_repo(target: Path) -> None:
+    """Клонуємо репозиторій. Якщо приватний — використовуємо GITHUB_TOKEN.
+    Токен НІКОЛИ не друкується у вивід."""
+    url = REPO_URL
+    if GITHUB_TOKEN and url.startswith("https://github.com/"):
+        url = url.replace("https://", f"https://{GITHUB_TOKEN}@", 1)
+    branch_arg = ["-b", REPO_BRANCH] if REPO_BRANCH else []
+    safe_url = REPO_URL  # без токена для друку
+    print(f"$ git clone --depth 1 {' '.join(branch_arg)} {safe_url} {target}".replace("  ", " "))
+    try:
+        subprocess.run(
+            ["git", "clone", "--depth", "1", *branch_arg, url, str(target)],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        raise SystemExit(
+            "❌ Не вдалося клонувати репозиторій.\n"
+            "   • Якщо репозиторій ПРИВАТНИЙ — додайте секрет GITHUB_TOKEN "
+            "(токен з https://github.com/settings/tokens), або зробіть репозиторій публічним.\n"
+            f"   • Перевірте, що гілка REPO_BRANCH='{REPO_BRANCH}' існує "
+            "(після злиття PR використовуйте 'main').\n"
+            "   • Або додайте проєкт як Kaggle-датасет (Add Input)."
+        )
 
 
 APP_DIR = locate_app()
