@@ -1,0 +1,21 @@
+# --- Core web server (needed everywhere, incl. sandbox MOCK mode) ---
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+python-multipart>=0.0.9
+pillow>=10.2
+requests>=2.31    # talks to Ollama Cloud (агенти-помічники)
+
+# --- GPU inference stack (installed on Kaggle; NOT needed for MOCK mode) ---
+# These are intentionally listed so Kaggle installs them, but the server
+# imports them lazily so it still boots without them.
+#   torch / torchvision come pre-installed on Kaggle GPU images.
+diffusers>=0.31
+transformers>=4.44
+accelerate>=0.30
+bitsandbytes>=0.43      # required for nf4 quantization on the T4s
+sentencepiece>=0.2
+safetensors>=0.4
+
+# --- Tunnel ---
+pyngrok>=7.1

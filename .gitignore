@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# App
+outputs/
+.preview/
+*.log
+
+# OS / editor
+.DS_Store
