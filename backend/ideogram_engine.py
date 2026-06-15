@@ -68,6 +68,7 @@ class IdeogramEngine:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()       # GPU work is serialised
+        self._load_lock = threading.Lock()  # ensures the model loads only once
         self._pipe = None                   # diffusers pipeline (real mode)
         self._inpaint_pipe = None
         self._img2img_pipe = None
@@ -78,10 +79,17 @@ class IdeogramEngine:
 
     # ---- lifecycle -------------------------------------------------------- #
     def load(self) -> None:
-        """Decide between real and mock mode, then load if real."""
+        """Decide between real and mock mode, then load if real (once)."""
         if self._loaded:
             return
+        # Guard so concurrent health/generate requests don't all trigger a
+        # heavy load at the same time (that was spamming the logs + wasting VRAM).
+        with self._load_lock:
+            if self._loaded:
+                return
+            self._load_impl()
 
+    def _load_impl(self) -> None:
         if settings.force_mock:
             self.mock = True
             self.device_info = {"mode": "mock", "reason": "MOCK_MODE=1"}
@@ -117,6 +125,7 @@ class IdeogramEngine:
 
     def _load_real(self) -> None:
         torch = self._torch
+        self._preload_cuda_libs()
         n_gpus = torch.cuda.device_count()
         names = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
         print(f"[engine] CUDA GPUs detected: {n_gpus} -> {names}")
@@ -142,6 +151,34 @@ class IdeogramEngine:
         self._pipe = pipe
         self.mock = False
         print(f"[engine] ready: {self.device_info}")
+
+    def _preload_cuda_libs(self) -> None:
+        """Preload CUDA shared libs (esp. libnvJitLink) from the pip `nvidia-*`
+        packages with RTLD_GLOBAL, so a CUDA-13 bitsandbytes can resolve
+        `libnvJitLink.so.13` even on Kaggle's CUDA-12 base image."""
+        import ctypes
+        import glob
+        import site
+
+        roots = []
+        try:
+            roots += site.getsitepackages()
+        except Exception:  # noqa: BLE001
+            pass
+        roots += ["/usr/local/lib/python3.12/dist-packages", "/usr/local/lib/python3.11/dist-packages"]
+        patterns = ["nvidia/*/lib/libnvJitLink.so*", "nvidia/*/lib/libcudart.so*", "nvidia/*/lib/libcublas*.so*"]
+        seen = set()
+        for root in roots:
+            for pat in patterns:
+                for so in glob.glob(f"{root}/{pat}"):
+                    if so in seen:
+                        continue
+                    seen.add(so)
+                    try:
+                        ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
+                        print(f"[engine] preloaded {so.split('/')[-1]}")
+                    except Exception:  # noqa: BLE001
+                        pass
 
     def _apply_bnb_shim(self) -> None:
         """Some bnb builds return Params4bit.shape as a tuple; diffusers calls

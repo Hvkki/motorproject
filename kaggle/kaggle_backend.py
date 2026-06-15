@@ -118,8 +118,12 @@ sh(f"pip -q install {C} fastapi 'uvicorn[standard]' pydantic python-multipart pi
 # Space ideogram-ai/ideogram4. torch НЕ чіпаємо завдяки constraints.
 sh(f"pip -q install {C} 'git+https://github.com/huggingface/diffusers.git@04b197eece42bfc88d1814b20e07987d94cccaa7'")
 sh(f"pip -q install {C} transformers==5.8.0 peft==0.19.1 accelerate==1.10.1 outlines==1.3.0 sentencepiece safetensors")
-# bitsandbytes: найновіший — під CUDA 13 (libnvJitLink.so.13), а Kaggle — CUDA 12.
-sh(f"pip -q install {C} 'bitsandbytes>=0.43,<0.46' || pip -q install {C} bitsandbytes")
+# bitsandbytes: PR-diffusers + transformers 5.8 ВИМАГАЮТЬ bnb>=0.46.1.
+# Новіший bnb збудований під CUDA 13 → потрібна libnvJitLink.so.13, якої немає
+# на Kaggle (CUDA 12). Тому додатково ставимо nvidia-nvjitlink-cu13 і
+# preload-имо її в движку (engine._preload_cuda_libs) перед завантаженням моделі.
+sh(f"pip -q install {C} 'bitsandbytes>=0.46.1'")
+sh(f"pip -q install {C} nvidia-nvjitlink-cu13 || echo 'nvjitlink-cu13 optional'")
 
 # Швидка перевірка, що ключові пакети імпортуються (не падаємо, лише друкуємо стан)
 print("🔎 Перевірка імпортів:")
