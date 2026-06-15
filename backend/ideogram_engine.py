@@ -117,39 +117,20 @@ class IdeogramEngine:
 
     def _load_real(self) -> None:
         torch = self._torch
-        from diffusers import DiffusionPipeline
-
         n_gpus = torch.cuda.device_count()
         names = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
         print(f"[engine] CUDA GPUs detected: {n_gpus} -> {names}")
+        self._apply_bnb_shim()
+        PipeCls = self._pipeline_class()
 
-        load_kwargs = dict(
-            torch_dtype=torch.float16,        # T4 = fp16 (NOT bf16)
-            trust_remote_code=True,           # Ideogram ships a custom pipeline
-            use_safetensors=True,
-        )
+        common = dict(torch_dtype=torch.float16)  # T4 = fp16
         if settings.hf_token:
-            load_kwargs["token"] = settings.hf_token
+            common["token"] = settings.hf_token
 
-        print(f"[engine] loading {settings.model_repo} (nf4)…")
-        pipe = DiffusionPipeline.from_pretrained(settings.model_repo, **load_kwargs)
+        pipe = self._load_balanced(PipeCls, common, n_gpus, names)
+        if pipe is None:
+            pipe = self._load_offload(PipeCls, common, names)
 
-        if settings.dual_gpu and n_gpus >= 2:
-            self._place_dual_gpu(pipe)
-            self.device_info = {
-                "mode": "cuda-dual",
-                "gpus": names,
-                "layout": {
-                    "text_encoder": "cuda:1",
-                    "transformer+vae": "cuda:0",
-                },
-            }
-        else:
-            # Single GPU fallback: stream layers from CPU to fit 16GB.
-            pipe.enable_model_cpu_offload()
-            self.device_info = {"mode": "cuda-single", "gpus": names}
-
-        # Memory-savers that matter a lot on T4.
         for attr in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
             fn = getattr(pipe, attr, None)
             if callable(fn):
@@ -162,28 +143,80 @@ class IdeogramEngine:
         self.mock = False
         print(f"[engine] ready: {self.device_info}")
 
-    def _place_dual_gpu(self, pipe) -> None:
-        """
-        Spread components across the two T4s.
+    def _apply_bnb_shim(self) -> None:
+        """Some bnb builds return Params4bit.shape as a tuple; diffusers calls
+        .numel() on it. math.prod handles both. Mirrors the official Space fix."""
+        try:
+            import math
+            from diffusers.quantizers.bitsandbytes.bnb_quantizer import (
+                BnB4BitDiffusersQuantizer,
+            )
 
-        The text encoder (Qwen3-VL-8B) is by far the heaviest single component,
-        so it gets its own card (cuda:1). The diffusion transformer (DiT) and
-        the VAE do the actual image work on cuda:0.
+            def _cqps(self, param_name, current_param, loaded_param):
+                n = math.prod(tuple(current_param.shape))
+                inferred = (n,) if "bias" in param_name else ((n + 1) // 2, 1)
+                if tuple(loaded_param.shape) != tuple(inferred):
+                    raise ValueError(
+                        f"Expected flattened shape of {param_name} to be "
+                        f"{inferred}, got {tuple(loaded_param.shape)}."
+                    )
+                return True
+
+            BnB4BitDiffusersQuantizer.check_quantized_param_shape = _cqps
+            print("[engine] bitsandbytes shape shim applied")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[engine] bnb shim skipped: {exc}")
+
+    def _pipeline_class(self):
+        try:
+            from diffusers import Ideogram4Pipeline as PipeCls
+            print("[engine] using Ideogram4Pipeline")
+        except Exception as exc:  # noqa: BLE001
+            from diffusers import DiffusionPipeline as PipeCls
+            print(f"[engine] Ideogram4Pipeline unavailable ({exc}); using DiffusionPipeline")
+        return PipeCls
+
+    def _load_balanced(self, PipeCls, common, n_gpus, names):
+        """Shard the quantized (nf4) model across BOTH T4s via device_map.
+
+        accelerate places every component (both DiT branches, the Qwen3-VL text
+        encoder, VAE) across the GPUs and adds cross-device transfer hooks. We
+        KEEP nf4 (never .dequantize()) so it fits in 2x16GB.
         """
-        moved = []
-        # Text encoder(s) -> cuda:1
-        for name in ("text_encoder", "text_encoder_2"):
-            comp = getattr(pipe, name, None)
-            if comp is not None:
-                comp.to("cuda:1")
-                moved.append(f"{name}->cuda:1")
-        # Everything that runs the denoising loop -> cuda:0
-        for name in ("transformer", "unet", "vae"):
-            comp = getattr(pipe, name, None)
-            if comp is not None:
-                comp.to("cuda:0")
-                moved.append(f"{name}->cuda:0")
-        print(f"[engine] dual-GPU placement: {', '.join(moved)}")
+        if not (settings.dual_gpu and n_gpus >= 2):
+            return None
+        try:
+            max_memory = {i: "13GiB" for i in range(n_gpus)}
+            max_memory["cpu"] = "48GiB"
+            print(f"[engine] loading {settings.model_repo} nf4, device_map=balanced {max_memory}…")
+            pipe = PipeCls.from_pretrained(
+                settings.model_repo, device_map="balanced", max_memory=max_memory, **common
+            )
+            self.device_info = {"mode": "cuda-balanced", "gpus": names}
+            return pipe
+        except Exception as exc:  # noqa: BLE001
+            print(f"[engine] device_map=balanced failed ({exc}); will try CPU offload")
+            return None
+
+    def _load_offload(self, PipeCls, common, names):
+        """Fallback: single load + sequential CPU offload (slow but fits)."""
+        print(f"[engine] loading {settings.model_repo} nf4 with CPU offload…")
+        pipe = PipeCls.from_pretrained(settings.model_repo, **common)
+        for method, mode in (
+            ("enable_sequential_cpu_offload", "cuda-seq-offload"),
+            ("enable_model_cpu_offload", "cuda-cpu-offload"),
+        ):
+            fn = getattr(pipe, method, None)
+            if callable(fn):
+                try:
+                    fn()
+                    self.device_info = {"mode": mode, "gpus": names}
+                    return pipe
+                except Exception:  # noqa: BLE001
+                    continue
+        pipe.to("cuda:0")
+        self.device_info = {"mode": "cuda-single", "gpus": names}
+        return pipe
 
     # ---- prompt helpers --------------------------------------------------- #
     def _expand_prompt(self, prompt: str) -> str:
@@ -252,9 +285,10 @@ class IdeogramEngine:
         with self._lock:
             for s in seeds:
                 gen = torch.Generator(device="cuda:0").manual_seed(int(s))
+                # Ideogram4Pipeline: single-stream, dual-branch CFG handled
+                # internally -> no negative_prompt arg.
                 out = self._pipe(
                     prompt=prompt,
-                    negative_prompt=negative or None,
                     width=width,
                     height=height,
                     num_inference_steps=steps,

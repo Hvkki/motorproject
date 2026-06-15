@@ -36,7 +36,7 @@ class Settings:
     # --- Model / engine ---
     # Hugging Face repo that ships the diffusers-compatible nf4 build.
     # nf4 is the ONLY quantization that runs on T4 (Turing) GPUs.
-    model_repo: str = os.environ.get("IDEOGRAM_MODEL_REPO", "ideogram-ai/ideogram-4-nf4-diffusers")
+    model_repo: str = os.environ.get("IDEOGRAM_MODEL_REPO", "ideogram-ai/ideogram-4-nf4")
 
     # Force mock mode regardless of GPU availability (useful for UI work).
     force_mock: bool = _env_bool("MOCK_MODE", False)
@@ -55,8 +55,8 @@ class Settings:
     # --- Generation defaults (tuned for T4 speed/quality balance) ---
     default_width: int = _env_int("DEFAULT_WIDTH", 1024)
     default_height: int = _env_int("DEFAULT_HEIGHT", 1024)
-    default_steps: int = _env_int("DEFAULT_STEPS", 28)
-    default_guidance: float = float(os.environ.get("DEFAULT_GUIDANCE", "5.0"))
+    default_steps: int = _env_int("DEFAULT_STEPS", 20)
+    default_guidance: float = float(os.environ.get("DEFAULT_GUIDANCE", "7.0"))
     # Hard cap so a single request can never exhaust VRAM / hang the GPUs.
     max_batch: int = _env_int("MAX_BATCH", 4)
     max_side: int = _env_int("MAX_SIDE", 2048)
