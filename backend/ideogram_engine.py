@@ -1,0 +1,520 @@
+"""
+Двигун генерації зображень на базі Ideogram 4 (nf4) для 2x NVIDIA T4.
+
+This module owns everything related to the model:
+
+* Loading the gated `ideogram-4-nf4-diffusers` checkpoint.
+* Splitting it across TWO T4 GPUs so the big Qwen3-VL-8B text encoder lives on
+  cuda:1 while the DiT transformer + VAE live on cuda:0. This is what lets a
+  9.3B model + an 8B text encoder fit on 2x16GB cards.
+* Text-to-image generation (batch of N images at once).
+* "Circle to modify" inpainting (regenerate only a masked region).
+
+If no CUDA GPU is available (e.g. this dev sandbox) OR MOCK_MODE=1, the engine
+falls back to a pure-PIL MOCK generator. The MOCK generator produces pleasant
+placeholder art so the entire UI + API flow can be exercised without a GPU.
+The public API (`generate`, `inpaint`) is identical in both modes.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import io
+import math
+import random
+import threading
+import time
+from dataclasses import dataclass
+from typing import Optional
+
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+from config import settings
+
+
+# --------------------------------------------------------------------------- #
+#  Result container
+# --------------------------------------------------------------------------- #
+@dataclass
+class GenResult:
+    images_b64: list[str]
+    seeds: list[int]
+    elapsed: float
+    mock: bool
+    width: int
+    height: int
+
+
+def _pil_to_b64(img: Image.Image, fmt: str = "PNG") -> str:
+    buf = io.BytesIO()
+    img.save(buf, format=fmt)
+    return "data:image/{};base64,{}".format(
+        fmt.lower(), base64.b64encode(buf.getvalue()).decode("ascii")
+    )
+
+
+def _b64_to_pil(data: str) -> Image.Image:
+    if "," in data:
+        data = data.split(",", 1)[1]
+    return Image.open(io.BytesIO(base64.b64decode(data))).convert("RGB")
+
+
+# --------------------------------------------------------------------------- #
+#  Engine
+# --------------------------------------------------------------------------- #
+class IdeogramEngine:
+    """Thread-safe wrapper around the Ideogram 4 pipeline (or the mock)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()       # GPU work is serialised
+        self._pipe = None                   # diffusers pipeline (real mode)
+        self._inpaint_pipe = None
+        self._img2img_pipe = None
+        self._torch = None
+        self._loaded = False
+        self.mock = True                    # decided in load()
+        self.device_info: dict = {}
+
+    # ---- lifecycle -------------------------------------------------------- #
+    def load(self) -> None:
+        """Decide between real and mock mode, then load if real."""
+        if self._loaded:
+            return
+
+        if settings.force_mock:
+            self.mock = True
+            self.device_info = {"mode": "mock", "reason": "MOCK_MODE=1"}
+            self._loaded = True
+            return
+
+        try:
+            import torch  # noqa: WPS433  (lazy import on purpose)
+
+            self._torch = torch
+            if not torch.cuda.is_available():
+                self.mock = True
+                self.device_info = {"mode": "mock", "reason": "no CUDA device"}
+                self._loaded = True
+                return
+        except Exception as exc:  # torch missing -> sandbox
+            self.mock = True
+            self.device_info = {"mode": "mock", "reason": f"torch unavailable: {exc}"}
+            self._loaded = True
+            return
+
+        # We have CUDA -> load the real pipeline.
+        self._load_real()
+        self._loaded = True
+
+    def _load_real(self) -> None:
+        torch = self._torch
+        from diffusers import DiffusionPipeline
+
+        n_gpus = torch.cuda.device_count()
+        names = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
+        print(f"[engine] CUDA GPUs detected: {n_gpus} -> {names}")
+
+        load_kwargs = dict(
+            torch_dtype=torch.float16,        # T4 = fp16 (NOT bf16)
+            trust_remote_code=True,           # Ideogram ships a custom pipeline
+            use_safetensors=True,
+        )
+        if settings.hf_token:
+            load_kwargs["token"] = settings.hf_token
+
+        print(f"[engine] loading {settings.model_repo} (nf4)…")
+        pipe = DiffusionPipeline.from_pretrained(settings.model_repo, **load_kwargs)
+
+        if settings.dual_gpu and n_gpus >= 2:
+            self._place_dual_gpu(pipe)
+            self.device_info = {
+                "mode": "cuda-dual",
+                "gpus": names,
+                "layout": {
+                    "text_encoder": "cuda:1",
+                    "transformer+vae": "cuda:0",
+                },
+            }
+        else:
+            # Single GPU fallback: stream layers from CPU to fit 16GB.
+            pipe.enable_model_cpu_offload()
+            self.device_info = {"mode": "cuda-single", "gpus": names}
+
+        # Memory-savers that matter a lot on T4.
+        for attr in ("enable_attention_slicing", "enable_vae_slicing", "enable_vae_tiling"):
+            fn = getattr(pipe, attr, None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        self._pipe = pipe
+        self.mock = False
+        print(f"[engine] ready: {self.device_info}")
+
+    def _place_dual_gpu(self, pipe) -> None:
+        """
+        Spread components across the two T4s.
+
+        The text encoder (Qwen3-VL-8B) is by far the heaviest single component,
+        so it gets its own card (cuda:1). The diffusion transformer (DiT) and
+        the VAE do the actual image work on cuda:0.
+        """
+        moved = []
+        # Text encoder(s) -> cuda:1
+        for name in ("text_encoder", "text_encoder_2"):
+            comp = getattr(pipe, name, None)
+            if comp is not None:
+                comp.to("cuda:1")
+                moved.append(f"{name}->cuda:1")
+        # Everything that runs the denoising loop -> cuda:0
+        for name in ("transformer", "unet", "vae"):
+            comp = getattr(pipe, name, None)
+            if comp is not None:
+                comp.to("cuda:0")
+                moved.append(f"{name}->cuda:0")
+        print(f"[engine] dual-GPU placement: {', '.join(moved)}")
+
+    # ---- prompt helpers --------------------------------------------------- #
+    def _expand_prompt(self, prompt: str) -> str:
+        """
+        Optionally turn a casual prompt into Ideogram's structured JSON caption
+        via the free hosted "magic prompt" API. Falls back to the raw prompt
+        on any error so generation never blocks on the network.
+        """
+        if not settings.magic_prompt_key:
+            return prompt
+        try:
+            import requests
+
+            resp = requests.post(
+                "https://api.ideogram.ai/v1/magic-prompt",
+                headers={"Api-Key": settings.magic_prompt_key},
+                json={"prompt": prompt},
+                timeout=15,
+            )
+            if resp.ok:
+                return resp.json().get("prompt", prompt)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[engine] magic-prompt skipped: {exc}")
+        return prompt
+
+    # ---- public: text to image ------------------------------------------- #
+    def generate(
+        self,
+        prompt: str,
+        negative: str = "",
+        n: int = 4,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        steps: Optional[int] = None,
+        guidance: Optional[float] = None,
+        seed: Optional[int] = None,
+    ) -> GenResult:
+        self.load()
+        n = max(1, min(int(n), settings.max_batch))
+        width = self._clamp_side(width or settings.default_width)
+        height = self._clamp_side(height or settings.default_height)
+        steps = int(steps or settings.default_steps)
+        guidance = float(guidance if guidance is not None else settings.default_guidance)
+        base_seed = int(seed) if seed is not None else random.randint(0, 2**31 - 1)
+        seeds = [base_seed + i for i in range(n)]
+
+        t0 = time.time()
+        if self.mock:
+            images = [self._mock_image(prompt, width, height, s) for s in seeds]
+        else:
+            images = self._generate_real(prompt, negative, seeds, width, height, steps, guidance)
+
+        return GenResult(
+            images_b64=[_pil_to_b64(im) for im in images],
+            seeds=seeds,
+            elapsed=round(time.time() - t0, 2),
+            mock=self.mock,
+            width=width,
+            height=height,
+        )
+
+    def _generate_real(self, prompt, negative, seeds, width, height, steps, guidance):
+        torch = self._torch
+        prompt = self._expand_prompt(prompt)
+        images: list[Image.Image] = []
+        with self._lock:
+            for s in seeds:
+                gen = torch.Generator(device="cuda:0").manual_seed(int(s))
+                out = self._pipe(
+                    prompt=prompt,
+                    negative_prompt=negative or None,
+                    width=width,
+                    height=height,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance,
+                    generator=gen,
+                )
+                images.append(out.images[0])
+        return images
+
+    # ---- public: circle-to-modify (inpainting) --------------------------- #
+    def inpaint(
+        self,
+        image_b64: str,
+        mask_b64: str,
+        prompt: str,
+        steps: Optional[int] = None,
+        guidance: Optional[float] = None,
+        seed: Optional[int] = None,
+    ) -> GenResult:
+        self.load()
+        base = _b64_to_pil(image_b64)
+        mask = _b64_to_pil(mask_b64).convert("L").resize(base.size)
+        steps = int(steps or settings.default_steps)
+        guidance = float(guidance if guidance is not None else settings.default_guidance)
+        s = int(seed) if seed is not None else random.randint(0, 2**31 - 1)
+
+        t0 = time.time()
+        if self.mock:
+            result = self._mock_inpaint(base, mask, prompt, s)
+        else:
+            result = self._inpaint_real(base, mask, prompt, steps, guidance, s)
+
+        return GenResult(
+            images_b64=[_pil_to_b64(result)],
+            seeds=[s],
+            elapsed=round(time.time() - t0, 2),
+            mock=self.mock,
+            width=base.width,
+            height=base.height,
+        )
+
+    def _inpaint_real(self, base, mask, prompt, steps, guidance, seed):
+        torch = self._torch
+        prompt = self._expand_prompt(prompt)
+        with self._lock:
+            # Lazily build an inpaint pipeline that shares the loaded weights,
+            # so we don't load the 9GB model twice.
+            if self._inpaint_pipe is None:
+                try:
+                    from diffusers import AutoPipelineForInpainting
+
+                    self._inpaint_pipe = AutoPipelineForInpainting.from_pipe(self._pipe)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[engine] dedicated inpaint pipe unavailable ({exc}); "
+                          "using img2img-style region regen")
+                    self._inpaint_pipe = self._pipe
+
+            gen = torch.Generator(device="cuda:0").manual_seed(int(seed))
+            try:
+                out = self._inpaint_pipe(
+                    prompt=prompt,
+                    image=base,
+                    mask_image=mask,
+                    width=base.width,
+                    height=base.height,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance,
+                    generator=gen,
+                )
+                result = out.images[0]
+            except TypeError:
+                # Pipeline has no mask support: regenerate full image and
+                # composite only the masked region back in (soft edges).
+                full = self._pipe(
+                    prompt=prompt, width=base.width, height=base.height,
+                    num_inference_steps=steps, guidance_scale=guidance, generator=gen,
+                ).images[0]
+                soft = mask.filter(ImageFilter.GaussianBlur(8))
+                result = Image.composite(full, base, soft)
+        return result
+
+    # ---- public: image-to-image (transform your own photo) --------------- #
+    def img2img(
+        self,
+        image_b64: str,
+        prompt: str,
+        strength: float = 0.6,
+        n: int = 1,
+        steps: Optional[int] = None,
+        guidance: Optional[float] = None,
+        seed: Optional[int] = None,
+    ) -> GenResult:
+        """Reimagine an uploaded photo guided by a prompt.
+
+        `strength` 0..1 = how much to change (0 keeps the photo, 1 ignores it).
+        """
+        self.load()
+        base = _b64_to_pil(image_b64)
+        base = self._fit_for_model(base)
+        n = max(1, min(int(n), settings.max_batch))
+        strength = max(0.05, min(float(strength), 0.95))
+        steps = int(steps or settings.default_steps)
+        guidance = float(guidance if guidance is not None else settings.default_guidance)
+        base_seed = int(seed) if seed is not None else random.randint(0, 2**31 - 1)
+        seeds = [base_seed + i for i in range(n)]
+
+        t0 = time.time()
+        if self.mock:
+            images = [self._mock_img2img(base, prompt, strength, s) for s in seeds]
+        else:
+            images = self._img2img_real(base, prompt, strength, seeds, steps, guidance)
+
+        return GenResult(
+            images_b64=[_pil_to_b64(im) for im in images],
+            seeds=seeds,
+            elapsed=round(time.time() - t0, 2),
+            mock=self.mock,
+            width=base.width,
+            height=base.height,
+        )
+
+    def _img2img_real(self, base, prompt, strength, seeds, steps, guidance):
+        torch = self._torch
+        prompt = self._expand_prompt(prompt)
+        images: list[Image.Image] = []
+        with self._lock:
+            if self._img2img_pipe is None:
+                try:
+                    from diffusers import AutoPipelineForImage2Image
+
+                    self._img2img_pipe = AutoPipelineForImage2Image.from_pipe(self._pipe)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[engine] dedicated img2img pipe unavailable ({exc}); reusing base")
+                    self._img2img_pipe = self._pipe
+            for s in seeds:
+                gen = torch.Generator(device="cuda:0").manual_seed(int(s))
+                out = self._img2img_pipe(
+                    prompt=prompt,
+                    image=base,
+                    strength=strength,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance,
+                    generator=gen,
+                )
+                images.append(out.images[0])
+        return images
+
+    # ---- public: upscale / enhance (bigger & sharper) -------------------- #
+    def upscale(self, image_b64: str, scale: int = 2) -> GenResult:
+        """Enlarge an image and sharpen it.
+
+        Uses a high-quality Lanczos resample + unsharp masking. This works on
+        any hardware and never risks the T4 VRAM budget. If a latent upscaler
+        is available it could be swapped in here, but Lanczos+sharpen gives a
+        reliable, visibly larger and crisper result for everyday use.
+        """
+        self.load()
+        img = _b64_to_pil(image_b64)
+        scale = 2 if int(scale) not in (2, 4) else int(scale)
+        target = (
+            min(img.width * scale, settings.max_side * 2),
+            min(img.height * scale, settings.max_side * 2),
+        )
+        t0 = time.time()
+        big = img.resize(target, Image.LANCZOS)
+        big = big.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=2))
+        return GenResult(
+            images_b64=[_pil_to_b64(big)],
+            seeds=[0],
+            elapsed=round(time.time() - t0, 2),
+            mock=self.mock,
+            width=big.width,
+            height=big.height,
+        )
+
+    # ---- helpers ---------------------------------------------------------- #
+    def _fit_for_model(self, img: Image.Image) -> Image.Image:
+        """Downscale huge uploads and snap sides to multiples of 16."""
+        max_in = min(settings.max_side, 1024)
+        if max(img.size) > max_in:
+            ratio = max_in / max(img.size)
+            img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS)
+        w = self._clamp_side(img.width)
+        h = self._clamp_side(img.height)
+        return img.resize((w, h), Image.LANCZOS)
+
+    def _clamp_side(self, v: int) -> int:
+        v = max(256, min(int(v), settings.max_side))
+        return (v // 16) * 16  # Ideogram needs multiples of 16
+
+    # ================== MOCK GENERATOR (no GPU needed) ==================== #
+    def _seeded_palette(self, key: str):
+        h = hashlib.sha256(key.encode("utf-8")).digest()
+        def col(i):
+            return (h[i] // 2 + 60, h[i + 1] // 2 + 60, h[i + 2] // 2 + 60)
+        return col(0), col(3), col(6)
+
+    def _mock_image(self, prompt: str, w: int, h: int, seed: int) -> Image.Image:
+        """A pleasant deterministic gradient + blobs + label placeholder."""
+        rng = random.Random(seed)
+        c1, c2, c3 = self._seeded_palette(f"{prompt}-{seed}")
+        img = Image.new("RGB", (w, h), c1)
+        draw = ImageDraw.Draw(img, "RGBA")
+
+        # Diagonal gradient
+        for y in range(h):
+            t = y / max(1, h - 1)
+            r = int(c1[0] * (1 - t) + c2[0] * t)
+            g = int(c1[1] * (1 - t) + c2[1] * t)
+            b = int(c1[2] * (1 - t) + c2[2] * t)
+            draw.line([(0, y), (w, y)], fill=(r, g, b))
+
+        # Soft floating blobs
+        for _ in range(7):
+            rad = rng.randint(int(w * 0.08), int(w * 0.28))
+            cx, cy = rng.randint(0, w), rng.randint(0, h)
+            alpha = rng.randint(40, 120)
+            draw.ellipse(
+                [cx - rad, cy - rad, cx + rad, cy + rad],
+                fill=(c3[0], c3[1], c3[2], alpha),
+            )
+        img = img.filter(ImageFilter.GaussianBlur(radius=max(2, w // 220)))
+
+        # Watermark-ish label so it's obvious this is a preview
+        draw = ImageDraw.Draw(img)
+        label = (prompt or "ескіз").strip()
+        if len(label) > 42:
+            label = label[:39] + "…"
+        font = self._load_font(int(h * 0.045))
+        small = self._load_font(int(h * 0.028))
+        draw.rectangle([0, h - int(h * 0.16), w, h], fill=(0, 0, 0, 90))
+        draw.text((int(w * 0.04), h - int(h * 0.135)), label, fill=(255, 255, 255), font=font)
+        draw.text((int(w * 0.04), h - int(h * 0.06)),
+                  f"МОКЕТ • демо без GPU • seed {seed}", fill=(230, 230, 230), font=small)
+        return img
+
+    def _mock_inpaint(self, base: Image.Image, mask: Image.Image, prompt: str, seed: int):
+        patch = self._mock_image(prompt or "зміна", base.width, base.height, seed)
+        soft = mask.filter(ImageFilter.GaussianBlur(10))
+        out = Image.composite(patch, base, soft)
+        # outline the edited region so the effect is visible in demo mode
+        edge = mask.filter(ImageFilter.FIND_EDGES).filter(ImageFilter.MaxFilter(5))
+        out.paste((255, 255, 255), (0, 0), edge.point(lambda p: 180 if p > 30 else 0))
+        return out
+
+    def _mock_img2img(self, base: Image.Image, prompt: str, strength: float, seed: int):
+        """Blend a generated overlay with the uploaded photo by `strength`."""
+        overlay = self._mock_image(prompt or "переробка", base.width, base.height, seed)
+        out = Image.blend(base, overlay, max(0.05, min(strength, 0.95)))
+        draw = ImageDraw.Draw(out)
+        small = self._load_font(int(base.height * 0.028))
+        draw.text((int(base.width * 0.04), int(base.height * 0.03)),
+                  "З ТВОГО ФОТО • демо", fill=(255, 255, 255), font=small)
+        return out
+
+    @staticmethod
+    def _load_font(size: int):
+        for path in (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:  # noqa: BLE001
+                continue
+        return ImageFont.load_default()
+
+
+# Singleton used by the server
+engine = IdeogramEngine()
