@@ -113,22 +113,27 @@ print("🔒 Закріплено torch-стек, щоб не оновлював�
 C = f"-c {CONSTRAINTS}"
 # Веб-стек + тунель
 sh(f"pip -q install {C} fastapi 'uvicorn[standard]' pydantic python-multipart pillow pyngrok requests")
-# Інференс-стек (torch НЕ чіпаємо завдяки constraints)
-sh(f"pip -q install {C} 'diffusers>=0.31' 'transformers>=4.44' accelerate sentencepiece safetensors")
-# bitsandbytes: найновіший збирається під CUDA 13 (libnvJitLink.so.13), а на Kaggle — CUDA 12.
-# Тому ставимо збірку під CUDA 12 (старіша гілка bnb).
+# diffusers з підтримкою Ideogram4Pipeline — це СПЕЦІАЛЬНА збірка з PR #13860
+# (звичайний diffusers НЕ має класу Ideogram4Pipeline). Версії — як в офіційному
+# Space ideogram-ai/ideogram4. torch НЕ чіпаємо завдяки constraints.
+sh(f"pip -q install {C} 'git+https://github.com/huggingface/diffusers.git@04b197eece42bfc88d1814b20e07987d94cccaa7'")
+sh(f"pip -q install {C} transformers==5.8.0 peft==0.19.1 accelerate==1.10.1 outlines==1.3.0 sentencepiece safetensors")
+# bitsandbytes: найновіший — під CUDA 13 (libnvJitLink.so.13), а Kaggle — CUDA 12.
 sh(f"pip -q install {C} 'bitsandbytes>=0.43,<0.46' || pip -q install {C} bitsandbytes")
-# Офіційний пакет Ideogram 4 (необовʼязково — шлях через diffusers працює і без нього)
-sh(f"pip -q install {C} 'git+https://github.com/ideogram-oss/ideogram4.git' || echo 'ideogram4 optional'")
 
 # Швидка перевірка, що ключові пакети імпортуються (не падаємо, лише друкуємо стан)
 print("🔎 Перевірка імпортів:")
-for _m in ("torch", "torchvision", "transformers", "diffusers", "bitsandbytes"):
+for _m in ("torch", "torchvision", "transformers", "diffusers", "bitsandbytes", "accelerate"):
     try:
         _mod = __import__(_m)
         print(f"   ✓ {_m} {getattr(_mod, '__version__', '')}")
     except Exception as _e:
         print(f"   ⚠ {_m}: {type(_e).__name__}: {_e}")
+try:
+    from diffusers import Ideogram4Pipeline  # noqa: F401
+    print("   ✓ Ideogram4Pipeline доступний")
+except Exception as _e:
+    print(f"   ⚠ Ideogram4Pipeline: {_e}")
 
 
 # ---------------------------------------------------------------------------
