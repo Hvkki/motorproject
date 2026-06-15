@@ -38,8 +38,8 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # 0. НАЛАШТУВАННЯ — змініть за потреби
 # ---------------------------------------------------------------------------
-REPO_URL = "https://github.com/USERNAME/mamina-studia.git"  # <- ваш репозиторій
-APP_DIRNAME = "mamina-studia"
+REPO_URL = "https://github.com/Hvkki/motorproject.git"  # <- ваш репозиторій
+APP_DIRNAME = "motorproject"
 PORT = 7860
 
 # ---------------------------------------------------------------------------
