@@ -281,20 +281,24 @@ class IdeogramEngine:
     def _generate_real(self, prompt, negative, seeds, width, height, steps, guidance):
         torch = self._torch
         prompt = self._expand_prompt(prompt)
+        # Community-proven schedule: main CFG for the first ~70% of steps, then
+        # drop to 3.0 for the final ~30% ("override of 3 at 0.700"). Mirrors the
+        # official Space preset construction (main first, polish last).
+        polish = max(1, round(steps * 0.3))
+        schedule = tuple([float(guidance)] * (steps - polish) + [3.0] * polish)
         images: list[Image.Image] = []
         with self._lock:
             for s in seeds:
                 gen = torch.Generator(device="cuda:0").manual_seed(int(s))
-                # Ideogram4Pipeline: single-stream, dual-branch CFG handled
-                # internally -> no negative_prompt arg.
-                out = self._pipe(
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    num_inference_steps=steps,
-                    guidance_scale=guidance,
-                    generator=gen,
+                base = dict(
+                    prompt=prompt, width=width, height=height,
+                    num_inference_steps=steps, generator=gen,
                 )
+                try:
+                    out = self._pipe(**base, guidance_schedule=schedule)
+                except TypeError:
+                    # pipeline doesn't accept guidance_schedule -> constant CFG
+                    out = self._pipe(**base, guidance_scale=guidance)
                 images.append(out.images[0])
         return images
 
