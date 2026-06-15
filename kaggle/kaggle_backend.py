@@ -88,14 +88,47 @@ def sh(cmd: str) -> None:
     subprocess.run(cmd, shell=True, check=True)
 
 
-print("⏳ Встановлюю залежності… (1–3 хв)")
+print("⏳ Готую залежності… (1–3 хв)")
 sh("pip -q install --upgrade pip")
+
+# ВАЖЛИВО: на Kaggle вже встановлені torch/torchvision/torchaudio під їхню CUDA.
+# Якщо якийсь пакет їх ОНОВИТЬ — ламається torchvision
+# (RuntimeError: operator torchvision::nms does not exist) і падає весь імпорт.
+# Тому фіксуємо ВЕСЬ torch-стек через constraints, щоб ніщо його не чіпало.
+_pins = subprocess.run(
+    [sys.executable, "-c",
+     "import importlib\n"
+     "out=[]\n"
+     "for m in ('torch','torchvision','torchaudio'):\n"
+     "    try: out.append(m+'=='+importlib.import_module(m).__version__)\n"
+     "    except Exception: pass\n"
+     "print(chr(10).join(out))"],
+    capture_output=True, text=True,
+).stdout.strip()
+CONSTRAINTS = "/kaggle/working/torch-constraints.txt"
+with open(CONSTRAINTS, "w") as _f:
+    _f.write(_pins + "\n")
+print("🔒 Закріплено torch-стек, щоб не оновлювався:\n" + (_pins or "(torch не знайдено)"))
+
+C = f"-c {CONSTRAINTS}"
 # Веб-стек + тунель
-sh("pip -q install fastapi 'uvicorn[standard]' pydantic python-multipart pillow pyngrok requests")
-# Інференс-стек для nf4 на T4 (torch вже є на Kaggle GPU-образі)
-sh("pip -q install 'diffusers>=0.31' 'transformers>=4.44' accelerate 'bitsandbytes>=0.43' sentencepiece safetensors")
-# Офіційний пакет Ideogram 4 (кастомний пайплайн + run_inference.py)
-sh("pip -q install 'git+https://github.com/ideogram-oss/ideogram4.git' || echo 'ideogram4 package optional — diffusers path still works'")
+sh(f"pip -q install {C} fastapi 'uvicorn[standard]' pydantic python-multipart pillow pyngrok requests")
+# Інференс-стек (torch НЕ чіпаємо завдяки constraints)
+sh(f"pip -q install {C} 'diffusers>=0.31' 'transformers>=4.44' accelerate sentencepiece safetensors")
+# bitsandbytes: найновіший збирається під CUDA 13 (libnvJitLink.so.13), а на Kaggle — CUDA 12.
+# Тому ставимо збірку під CUDA 12 (старіша гілка bnb).
+sh(f"pip -q install {C} 'bitsandbytes>=0.43,<0.46' || pip -q install {C} bitsandbytes")
+# Офіційний пакет Ideogram 4 (необовʼязково — шлях через diffusers працює і без нього)
+sh(f"pip -q install {C} 'git+https://github.com/ideogram-oss/ideogram4.git' || echo 'ideogram4 optional'")
+
+# Швидка перевірка, що ключові пакети імпортуються (не падаємо, лише друкуємо стан)
+print("🔎 Перевірка імпортів:")
+for _m in ("torch", "torchvision", "transformers", "diffusers", "bitsandbytes"):
+    try:
+        _mod = __import__(_m)
+        print(f"   ✓ {_m} {getattr(_mod, '__version__', '')}")
+    except Exception as _e:
+        print(f"   ⚠ {_m}: {type(_e).__name__}: {_e}")
 
 
 # ---------------------------------------------------------------------------

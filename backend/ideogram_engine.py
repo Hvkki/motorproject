@@ -103,8 +103,16 @@ class IdeogramEngine:
             self._loaded = True
             return
 
-        # We have CUDA -> load the real pipeline.
-        self._load_real()
+        # We have CUDA -> load the real pipeline. If anything goes wrong
+        # (deps, gated weights, OOM), degrade to MOCK so the app still serves.
+        try:
+            self._load_real()
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            print(f"[engine] real load FAILED -> falling back to MOCK mode: {exc}")
+            self.mock = True
+            self.device_info = {"mode": "mock", "reason": f"load failed: {exc}"}
         self._loaded = True
 
     def _load_real(self) -> None:
