@@ -56,7 +56,7 @@ class Settings:
     default_width: int = _env_int("DEFAULT_WIDTH", 1024)
     default_height: int = _env_int("DEFAULT_HEIGHT", 1024)
     default_steps: int = _env_int("DEFAULT_STEPS", 20)
-    default_guidance: float = float(os.environ.get("DEFAULT_GUIDANCE", "7.0"))
+    default_guidance: float = float(os.environ.get("DEFAULT_GUIDANCE", "6.0"))
     # Hard cap so a single request can never exhaust VRAM / hang the GPUs.
     max_batch: int = _env_int("MAX_BATCH", 4)
     max_side: int = _env_int("MAX_SIDE", 2048)
