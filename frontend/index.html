@@ -240,10 +240,11 @@
     <div class="modal-card">
       <button class="lb-close dark" id="asClose" aria-label="Закрити">✕</button>
       <h2>🤖 Агенти й ключ Ollama</h2>
-      <p class="as-intro">Агенти спілкуються, малюють і перевіряють картинки. Щоб вони працювали,
-        встав сюди свій ключ <b>Ollama</b> (отримати: <span class="as-link">ollama.com</span>).</p>
-      <label class="as-label">Ключ Ollama</label>
-      <input type="password" id="asKey" class="as-input" placeholder="встав ключ сюди" autocomplete="off" />
+      <p class="as-intro"><b>Це необовʼязково!</b> Без ключа студія працює — просто
+        пишеш, і вона малює. Ключ <b>Ollama</b> додає розумних агентів, що
+        спілкуються й перевіряють картинки. Отримати ключ: <span class="as-link">ollama.com</span>.</p>
+      <label class="as-label">Ключ Ollama (необовʼязково)</label>
+      <input type="password" id="asKey" class="as-input" placeholder="встав ключ сюди або залиш порожнім" autocomplete="off" />
       <label class="as-label">Модель</label>
       <input type="text" id="asModel" class="as-input" placeholder="gemma4:31b" value="gemma4:31b" />
       <div class="as-status" id="asStatus"></div>
@@ -251,6 +252,7 @@
         <button class="ghost-btn" id="asTest">Перевірити</button>
         <button class="big-btn" id="asSave">Зберегти</button>
       </div>
+      <button class="big-btn as-skip" id="asSkip">✕ Закрити / працювати без агентів</button>
       <p class="as-note">Ключ зберігається лише у твоєму браузері. 🔒</p>
     </div>
   </div>

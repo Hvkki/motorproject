@@ -314,6 +314,8 @@ h1, h2, .brand-text, .big { font-family: "Comfortaa", "Nunito", sans-serif; }
 .as-actions .ghost-btn { flex: 0 0 auto; padding: 14px 18px; }
 .as-actions .big-btn { flex: 1; }
 .as-note { font-size: 13px; color: var(--ink-soft); text-align: center; margin: 14px 0 0; }
+.as-skip { width: 100%; margin-top: 12px; background: #f3eaf3; color: var(--ink); }
+.as-skip:hover { background: #ecdcec; }
 
 /* ---------- Сповіщення ---------- */
 .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 13px 22px; border-radius: 14px; font-weight: 700; z-index: 90; box-shadow: var(--shadow); animation: rise .3s both; max-width: 90vw; text-align: center; }
