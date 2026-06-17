@@ -356,7 +356,14 @@ class IdeogramEngine:
             repo = settings.model_repo
             tok = dict(token=settings.hf_token) if settings.hf_token else {}
             dt = dict(torch_dtype=torch.float16)
-            print(f"[engine] loading {repo} per-component: enc+uncond+vae@cuda:0, transformer@cuda:1…")
+            parallel = bool(getattr(settings, "cfg_parallel", False))
+            # Sequential (default): both transformers on cuda:1, encoder+vae on
+            # cuda:0 -> fits 1024^2, reliable. Parallel: uncond moves to cuda:0
+            # so the two passes run on separate GPUs concurrently (faster, but
+            # encoder+uncond+acts is tight -> use <=768^2).
+            uncond_gpu = 0 if parallel else 1
+            print(f"[engine] loading {repo} per-component (parallel={parallel}): "
+                  f"enc+vae@cuda:0, transformer@cuda:1, uncond@cuda:{uncond_gpu}…")
 
             text_encoder = AutoModel.from_pretrained(
                 repo, subfolder="text_encoder", device_map={"": 0}, **dt, **tok
@@ -364,18 +371,18 @@ class IdeogramEngine:
             vae = AutoencoderKLFlux2.from_pretrained(
                 repo, subfolder="vae", device_map={"": 0}, **dt, **tok
             )
-            uncond = Ideogram4Transformer2DModel.from_pretrained(
-                repo, subfolder="unconditional_transformer", device_map={"": 0}, **dt, **tok
-            )
             transformer = Ideogram4Transformer2DModel.from_pretrained(
                 repo, subfolder="transformer", device_map={"": 1}, **dt, **tok
+            )
+            uncond = Ideogram4Transformer2DModel.from_pretrained(
+                repo, subfolder="unconditional_transformer", device_map={"": uncond_gpu}, **dt, **tok
             )
             scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
                 repo, subfolder="scheduler", **tok
             )
             tokenizer = AutoTokenizer.from_pretrained(repo, subfolder="tokenizer", **tok)
 
-            PipeCls = self._parallel_pipeline_class() or self._pipeline_class()
+            PipeCls = (self._parallel_pipeline_class() if parallel else None) or self._pipeline_class()
             pipe = PipeCls(
                 scheduler=scheduler,
                 vae=vae,
@@ -386,29 +393,31 @@ class IdeogramEngine:
                 prompt_enhancer=None,
             )
 
-            # Only the conditional transformer is off the execution device
-            # (cuda:1). Align its IO so inputs hop to cuda:1 and the output hops
-            # back to cuda:0 for the blend. uncond/enc/vae are already on cuda:0.
+            # Components on cuda:1 need an io_same_device align hook so their
+            # inputs hop to cuda:1 and outputs hop back to cuda:0 (execution
+            # device) for the blend. The conditional transformer is always on
+            # cuda:1; in sequential mode the uncond is too.
             try:
                 from accelerate.hooks import AlignDevicesHook, add_hook_to_module
 
-                add_hook_to_module(
-                    transformer,
-                    AlignDevicesHook(
-                        execution_device=torch.device("cuda:1"),
-                        io_same_device=True,
-                    ),
-                    append=False,
-                )
-                print("[engine] align hook attached to conditional transformer (cuda:1<->cuda:0)")
+                to_hook = [transformer] + ([] if parallel else [uncond])
+                for m in to_hook:
+                    add_hook_to_module(
+                        m,
+                        AlignDevicesHook(
+                            execution_device=torch.device("cuda:1"),
+                            io_same_device=True,
+                        ),
+                        append=False,
+                    )
+                print(f"[engine] align hook(s) attached to {len(to_hook)} module(s) on cuda:1")
             except Exception as exc:  # noqa: BLE001
                 print(f"[engine] align hook attach failed: {exc}")
 
             self._assert_no_meta(pipe)
-            parallel = type(pipe).__name__ == "_ParallelIdeogram4"
             self.device_info = {"mode": "cuda-split", "gpus": names,
                                 "parallel": parallel,
-                                "layout": "enc+uncond+vae@0, transformer@1"}
+                                "layout": f"enc+vae@0, transformer@1, uncond@{uncond_gpu}"}
             return pipe
         except Exception as exc:  # noqa: BLE001
             import traceback
