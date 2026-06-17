@@ -141,7 +141,9 @@ class IdeogramEngine:
         if settings.hf_token:
             common["token"] = settings.hf_token
 
-        pipe = self._load_balanced(PipeCls, common, n_gpus, names)
+        pipe = self._load_split(common, n_gpus, names)
+        if pipe is None:
+            pipe = self._load_balanced(PipeCls, common, n_gpus, names)
         if pipe is None:
             pipe = self._load_offload(PipeCls, common, names)
 
@@ -314,6 +316,100 @@ class IdeogramEngine:
             from diffusers import DiffusionPipeline as PipeCls
             print(f"[engine] Ideogram4Pipeline unavailable ({exc}); using DiffusionPipeline")
         return PipeCls
+
+    def _load_split(self, common, n_gpus, names):
+        """PRIMARY dual-GPU path: load every component WHOLE onto a single GPU.
+
+        `device_map="balanced"` splits individual components across both T4s,
+        which (a) made accelerate offload nf4 layers to the meta device and
+        (b) stranded the text encoder's rotary `inv_freq` buffer on a different
+        GPU than its `position_ids` (RuntimeError: tensors on cuda:0 vs cuda:1).
+        Pinning each component whole avoids both.
+
+        Layout (sizes: enc 5.1G, transformer 4.9G, uncond 4.9G, vae 0.16G):
+          * cuda:0 -> text_encoder + vae  (must match `_execution_device`, which
+            is the first model component's device, because the pipeline calls the
+            encoder's submodules directly with inputs built on that device).
+          * cuda:1 -> transformer + unconditional_transformer (called via
+            forward(); an io_same_device align hook moves their inputs to cuda:1
+            and returns outputs to cuda:0 for the CFG blend).
+        """
+        if not (settings.dual_gpu and n_gpus >= 2):
+            return None
+        torch = self._torch
+        try:
+            from diffusers import (
+                AutoencoderKLFlux2,
+                FlowMatchEulerDiscreteScheduler,
+                Ideogram4Transformer2DModel,
+            )
+            from transformers import AutoModel, AutoTokenizer
+        except Exception as exc:  # noqa: BLE001
+            print(f"[engine] split load unavailable ({exc}); will try balanced")
+            return None
+        try:
+            repo = settings.model_repo
+            tok = dict(token=settings.hf_token) if settings.hf_token else {}
+            dt = dict(torch_dtype=torch.float16)
+            print(f"[engine] loading {repo} per-component: enc+vae@cuda:0, transformers@cuda:1…")
+
+            text_encoder = AutoModel.from_pretrained(
+                repo, subfolder="text_encoder", device_map={"": 0}, **dt, **tok
+            )
+            vae = AutoencoderKLFlux2.from_pretrained(
+                repo, subfolder="vae", device_map={"": 0}, **dt, **tok
+            )
+            transformer = Ideogram4Transformer2DModel.from_pretrained(
+                repo, subfolder="transformer", device_map={"": 1}, **dt, **tok
+            )
+            uncond = Ideogram4Transformer2DModel.from_pretrained(
+                repo, subfolder="unconditional_transformer", device_map={"": 1}, **dt, **tok
+            )
+            scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                repo, subfolder="scheduler", **tok
+            )
+            tokenizer = AutoTokenizer.from_pretrained(repo, subfolder="tokenizer", **tok)
+
+            PipeCls = self._pipeline_class()
+            pipe = PipeCls(
+                scheduler=scheduler,
+                vae=vae,
+                text_encoder=text_encoder,
+                tokenizer=tokenizer,
+                transformer=transformer,
+                unconditional_transformer=uncond,
+                prompt_enhancer=None,
+            )
+
+            # The two transformers live on cuda:1 but are fed tensors built on
+            # cuda:0 (the execution device). Attach an align hook so inputs hop
+            # to cuda:1 and outputs hop back to cuda:0 (needed for the blend
+            # `gw*pos_v + (1-gw)*neg_v`, which must be single-device).
+            try:
+                from accelerate.hooks import AlignDevicesHook, add_hook_to_module
+
+                for m in (transformer, uncond):
+                    add_hook_to_module(
+                        m,
+                        AlignDevicesHook(
+                            execution_device=torch.device("cuda:1"),
+                            io_same_device=True,
+                        ),
+                        append=False,
+                    )
+                print("[engine] align hooks attached to transformers (cuda:1<->cuda:0)")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[engine] align hook attach failed: {exc}")
+
+            self._assert_no_meta(pipe)
+            self.device_info = {"mode": "cuda-split", "gpus": names,
+                                "layout": "text_encoder+vae@0, transformers@1"}
+            return pipe
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            print(f"[engine] per-component split load failed ({exc}); will try balanced")
+            return None
 
     def _load_balanced(self, PipeCls, common, n_gpus, names):
         """Shard the quantized (nf4) model across BOTH T4s via device_map.
