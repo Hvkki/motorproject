@@ -325,23 +325,53 @@ class IdeogramEngine:
         if not (settings.dual_gpu and n_gpus >= 2):
             return None
         try:
-            # IMPORTANT: do NOT give accelerate a "cpu" budget here. With a cpu
-            # entry it offloads part of the nf4 model to CPU/meta, and bitsandbytes
-            # 4bit params then crash at inference with
+            # The whole nf4 model is only ~15GB (transformer 4.9 + uncond 4.9 +
+            # text_encoder 5.1 + vae 0.2) and 2x T4 give ~31GB — it fits easily.
+            # BUT accelerate over-estimates bitsandbytes 4bit module sizes (it
+            # sizes them closer to fp16), so with a tight budget it wrongly
+            # decides the model doesn't fit and OFFLOADS the overflow to the
+            # `meta` device. Those offloaded 4bit params then crash at inference:
             #   NotImplementedError: Cannot copy out of meta tensor; no data!
-            # (the hook tries to move a 4bit param whose quant_state.code is on
-            # the meta device). bnb-4bit + accelerate CPU offload are incompatible.
-            # The nf4 model (~16GB) fits across 2x T4 (~31GB) entirely on-GPU.
-            max_memory = {i: "14GiB" for i in range(n_gpus)}
-            print(f"[engine] loading {settings.model_repo} nf4, device_map=balanced {max_memory} (GPU-only, no CPU offload)…")
+            # (absmax is real data that was never materialised). There is also no
+            # "cpu" budget here — CPU offload hits the same bnb-4bit failure.
+            # Fix: hand accelerate a deliberately generous per-GPU budget so it
+            # never offloads. Actual on-GPU usage (~7.5GB/GPU) stays well under
+            # the physical 15.6GB.
+            max_memory = {i: "40GiB" for i in range(n_gpus)}
+            print(f"[engine] loading {settings.model_repo} nf4, device_map=balanced {max_memory} (generous budget, no offload)…")
             pipe = PipeCls.from_pretrained(
                 settings.model_repo, device_map="balanced", max_memory=max_memory, **common
             )
+            self._assert_no_meta(pipe)
             self.device_info = {"mode": "cuda-balanced", "gpus": names}
             return pipe
         except Exception as exc:  # noqa: BLE001
             print(f"[engine] device_map=balanced failed ({exc}); will try CPU offload")
             return None
+
+    def _assert_no_meta(self, pipe) -> None:
+        """Loud fail-fast check: if accelerate still parked any weight on the
+        meta device, inference WILL crash later with 'Cannot copy out of meta
+        tensor'. Surface it now in the load log instead."""
+        torch = self._torch
+        meta = []
+        try:
+            comps = pipe.components.values() if hasattr(pipe, "components") else []
+            for module in comps:
+                if not hasattr(module, "named_parameters"):
+                    continue
+                for name, p in module.named_parameters():
+                    if getattr(p, "is_meta", False):
+                        meta.append(name)
+                        if len(meta) >= 5:
+                            break
+        except Exception:  # noqa: BLE001
+            return
+        if meta:
+            print(f"[engine] WARNING: {len(meta)}+ params still on META after load "
+                  f"(e.g. {meta[:3]}). Inference will fail — budget/placement needs work.")
+        else:
+            print("[engine] meta-check OK: no parameters on the meta device.")
 
     def _load_offload(self, PipeCls, common, names):
         """Fallback: single load + sequential CPU offload (slow but fits)."""
