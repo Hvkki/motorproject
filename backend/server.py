@@ -15,11 +15,13 @@ POST /api/inpaint      -> "circle to modify" region regeneration
 
 from __future__ import annotations
 
+import json
+import threading
 from typing import Optional
 
 from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -156,20 +158,51 @@ def agent_test(req: KeyTestRequest):
     return JSONResponse(agent.ping(api_key=req.key, model=req.model))
 
 
+def _streamed(make_payload):
+    """Run a slow engine call in a background thread while trickling keep-alive
+    whitespace to the client, then emit the final JSON.
+
+    Image generation on 2x T4 takes minutes; a single blocking HTTP request that
+    long gets killed by the ngrok edge (the browser sees HTTP 503) even though
+    the work succeeds. Streaming a space every few seconds keeps the tunnel
+    active. Leading whitespace is valid JSON, so the frontend's `response.json()`
+    parses the payload unchanged — no client changes needed.
+    """
+    box: dict = {}
+
+    def work():
+        try:
+            box["payload"] = make_payload()
+        except Exception as exc:  # noqa: BLE001
+            box["payload"] = {"error": str(exc)}
+
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+
+    def body():
+        while t.is_alive():
+            t.join(timeout=5)
+            if t.is_alive():
+                yield b" "
+        yield json.dumps(box.get("payload", {"error": "no result"})).encode("utf-8")
+
+    return StreamingResponse(body(), media_type="application/json")
+
+
 @app.post("/api/generate")
 def generate(req: GenerateRequest):
-    res = engine.generate(
-        prompt=req.prompt,
-        negative=req.negative,
-        n=req.count,
-        width=req.width,
-        height=req.height,
-        steps=req.steps,
-        guidance=req.guidance,
-        seed=req.seed,
-    )
-    return JSONResponse(
-        {
+    def make():
+        res = engine.generate(
+            prompt=req.prompt,
+            negative=req.negative,
+            n=req.count,
+            width=req.width,
+            height=req.height,
+            steps=req.steps,
+            guidance=req.guidance,
+            seed=req.seed,
+        )
+        return {
             "images": res.images_b64,
             "seeds": res.seeds,
             "elapsed": res.elapsed,
@@ -177,42 +210,44 @@ def generate(req: GenerateRequest):
             "width": res.width,
             "height": res.height,
         }
-    )
+
+    return _streamed(make)
 
 
 @app.post("/api/inpaint")
 def inpaint(req: InpaintRequest):
-    res = engine.inpaint(
-        image_b64=req.image,
-        mask_b64=req.mask,
-        prompt=req.prompt,
-        steps=req.steps,
-        guidance=req.guidance,
-        seed=req.seed,
-    )
-    return JSONResponse(
-        {
+    def make():
+        res = engine.inpaint(
+            image_b64=req.image,
+            mask_b64=req.mask,
+            prompt=req.prompt,
+            steps=req.steps,
+            guidance=req.guidance,
+            seed=req.seed,
+        )
+        return {
             "images": res.images_b64,
             "seeds": res.seeds,
             "elapsed": res.elapsed,
             "mock": res.mock,
         }
-    )
+
+    return _streamed(make)
 
 
 @app.post("/api/img2img")
 def img2img(req: Img2ImgRequest):
-    res = engine.img2img(
-        image_b64=req.image,
-        prompt=req.prompt,
-        strength=req.strength,
-        n=req.count,
-        steps=req.steps,
-        guidance=req.guidance,
-        seed=req.seed,
-    )
-    return JSONResponse(
-        {
+    def make():
+        res = engine.img2img(
+            image_b64=req.image,
+            prompt=req.prompt,
+            strength=req.strength,
+            n=req.count,
+            steps=req.steps,
+            guidance=req.guidance,
+            seed=req.seed,
+        )
+        return {
             "images": res.images_b64,
             "seeds": res.seeds,
             "elapsed": res.elapsed,
@@ -220,7 +255,8 @@ def img2img(req: Img2ImgRequest):
             "width": res.width,
             "height": res.height,
         }
-    )
+
+    return _streamed(make)
 
 
 @app.post("/api/upscale")
