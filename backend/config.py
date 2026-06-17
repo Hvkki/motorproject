@@ -45,6 +45,12 @@ class Settings:
     # text encoder (Qwen3-VL-8B) -> cuda:1, DiT transformer + VAE -> cuda:0.
     dual_gpu: bool = _env_bool("DUAL_GPU", True)
 
+    # Run the conditional + unconditional transformer passes concurrently on the
+    # two GPUs (~2x faster denoising). OFF by default: it needs each transformer
+    # on its own GPU, so the encoder must co-reside with one transformer, which
+    # OOMs at 1024^2 on 2x T4. Safe at <=768^2. Set CFG_PARALLEL=1 to enable.
+    cfg_parallel: bool = _env_bool("CFG_PARALLEL", False)
+
     # Hugging Face token (weights are gated). Read lazily by the engine.
     hf_token: str | None = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
 
