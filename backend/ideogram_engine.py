@@ -30,6 +30,11 @@ from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+# Reduce CUDA fragmentation OOM on the offload fallback. Must be set before
+# torch initialises CUDA, so it lives at module import time.
+import os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 from config import settings
 
 
@@ -203,6 +208,38 @@ class IdeogramEngine:
             print("[engine] bitsandbytes shape shim applied")
         except Exception as exc:  # noqa: BLE001
             print(f"[engine] bnb shim skipped: {exc}")
+
+        # Recent transformers/accelerate forward an internal `_is_hf_initialized`
+        # flag into the bitsandbytes Parameter constructors, which they don't
+        # accept -> the device_map="balanced" multi-GPU load dies with
+        # `Params4bit.__new__() got an unexpected keyword argument
+        # '_is_hf_initialized'` and we wrongly fall back to single-GPU OOM.
+        # Swallow the kwarg (and re-apply it as an attribute) so the 2-GPU split
+        # works. See huggingface/transformers#43872.
+        try:
+            import bitsandbytes as bnb
+
+            for _cls_name in ("Params4bit", "Int8Params"):
+                _cls = getattr(bnb.nn, _cls_name, None)
+                if _cls is None or getattr(_cls, "_kwarg_shimmed", False):
+                    continue
+                _orig_new = _cls.__new__
+
+                def _patched_new(kls, *args, _orig_new=_orig_new, **kwargs):
+                    hf_init = kwargs.pop("_is_hf_initialized", None)
+                    obj = _orig_new(kls, *args, **kwargs)
+                    if hf_init is not None:
+                        try:
+                            obj._is_hf_initialized = hf_init
+                        except Exception:  # noqa: BLE001
+                            pass
+                    return obj
+
+                _cls.__new__ = _patched_new
+                _cls._kwarg_shimmed = True
+            print("[engine] bitsandbytes _is_hf_initialized shim applied")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[engine] bnb kwarg shim skipped: {exc}")
 
     def _pipeline_class(self):
         try:
