@@ -203,6 +203,7 @@ async function produceImages(bubble, prompt, opts) {
   });
   if (!r.ok) throw new Error("HTTP " + r.status);
   const d = await r.json();
+  if (d.error) throw new Error(d.error);
   gal.innerHTML = "";
   gal.className = `gallery n${d.images.length}`;
   const ar2 = (d.width / d.height).toFixed(3);
