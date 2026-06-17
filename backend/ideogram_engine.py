@@ -260,9 +260,15 @@ class IdeogramEngine:
         if not (settings.dual_gpu and n_gpus >= 2):
             return None
         try:
-            max_memory = {i: "13GiB" for i in range(n_gpus)}
-            max_memory["cpu"] = "48GiB"
-            print(f"[engine] loading {settings.model_repo} nf4, device_map=balanced {max_memory}…")
+            # IMPORTANT: do NOT give accelerate a "cpu" budget here. With a cpu
+            # entry it offloads part of the nf4 model to CPU/meta, and bitsandbytes
+            # 4bit params then crash at inference with
+            #   NotImplementedError: Cannot copy out of meta tensor; no data!
+            # (the hook tries to move a 4bit param whose quant_state.code is on
+            # the meta device). bnb-4bit + accelerate CPU offload are incompatible.
+            # The nf4 model (~16GB) fits across 2x T4 (~31GB) entirely on-GPU.
+            max_memory = {i: "14GiB" for i in range(n_gpus)}
+            print(f"[engine] loading {settings.model_repo} nf4, device_map=balanced {max_memory} (GPU-only, no CPU offload)…")
             pipe = PipeCls.from_pretrained(
                 settings.model_repo, device_map="balanced", max_memory=max_memory, **common
             )
