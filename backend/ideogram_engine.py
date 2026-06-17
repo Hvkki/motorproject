@@ -327,12 +327,17 @@ class IdeogramEngine:
         Pinning each component whole avoids both.
 
         Layout (sizes: enc 5.1G, transformer 4.9G, uncond 4.9G, vae 0.16G):
-          * cuda:0 -> text_encoder + vae  (must match `_execution_device`, which
-            is the first model component's device, because the pipeline calls the
-            encoder's submodules directly with inputs built on that device).
-          * cuda:1 -> transformer + unconditional_transformer (called via
-            forward(); an io_same_device align hook moves their inputs to cuda:1
-            and returns outputs to cuda:0 for the CFG blend).
+          * cuda:0 -> text_encoder + unconditional_transformer + vae. cuda:0 is
+            the `_execution_device` (first model component), so the encoder's
+            direct submodule calls (rotary/embed, built on that device) stay
+            consistent, and the unconditional pass runs here.
+          * cuda:1 -> transformer (conditional). Called via forward(), with an
+            io_same_device hook so its inputs hop to cuda:1 and the output hops
+            back to cuda:0 for the blend.
+
+        The two transformers are deliberately on DIFFERENT GPUs so the parallel
+        denoising loop (see _parallel_pipeline_class) can run the conditional
+        and unconditional forwards concurrently, ~halving per-step time.
         """
         if not (settings.dual_gpu and n_gpus >= 2):
             return None
@@ -351,7 +356,7 @@ class IdeogramEngine:
             repo = settings.model_repo
             tok = dict(token=settings.hf_token) if settings.hf_token else {}
             dt = dict(torch_dtype=torch.float16)
-            print(f"[engine] loading {repo} per-component: enc+vae@cuda:0, transformers@cuda:1…")
+            print(f"[engine] loading {repo} per-component: enc+uncond+vae@cuda:0, transformer@cuda:1…")
 
             text_encoder = AutoModel.from_pretrained(
                 repo, subfolder="text_encoder", device_map={"": 0}, **dt, **tok
@@ -359,18 +364,18 @@ class IdeogramEngine:
             vae = AutoencoderKLFlux2.from_pretrained(
                 repo, subfolder="vae", device_map={"": 0}, **dt, **tok
             )
+            uncond = Ideogram4Transformer2DModel.from_pretrained(
+                repo, subfolder="unconditional_transformer", device_map={"": 0}, **dt, **tok
+            )
             transformer = Ideogram4Transformer2DModel.from_pretrained(
                 repo, subfolder="transformer", device_map={"": 1}, **dt, **tok
-            )
-            uncond = Ideogram4Transformer2DModel.from_pretrained(
-                repo, subfolder="unconditional_transformer", device_map={"": 1}, **dt, **tok
             )
             scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
                 repo, subfolder="scheduler", **tok
             )
             tokenizer = AutoTokenizer.from_pretrained(repo, subfolder="tokenizer", **tok)
 
-            PipeCls = self._pipeline_class()
+            PipeCls = self._parallel_pipeline_class() or self._pipeline_class()
             pipe = PipeCls(
                 scheduler=scheduler,
                 vae=vae,
@@ -381,35 +386,199 @@ class IdeogramEngine:
                 prompt_enhancer=None,
             )
 
-            # The two transformers live on cuda:1 but are fed tensors built on
-            # cuda:0 (the execution device). Attach an align hook so inputs hop
-            # to cuda:1 and outputs hop back to cuda:0 (needed for the blend
-            # `gw*pos_v + (1-gw)*neg_v`, which must be single-device).
+            # Only the conditional transformer is off the execution device
+            # (cuda:1). Align its IO so inputs hop to cuda:1 and the output hops
+            # back to cuda:0 for the blend. uncond/enc/vae are already on cuda:0.
             try:
                 from accelerate.hooks import AlignDevicesHook, add_hook_to_module
 
-                for m in (transformer, uncond):
-                    add_hook_to_module(
-                        m,
-                        AlignDevicesHook(
-                            execution_device=torch.device("cuda:1"),
-                            io_same_device=True,
-                        ),
-                        append=False,
-                    )
-                print("[engine] align hooks attached to transformers (cuda:1<->cuda:0)")
+                add_hook_to_module(
+                    transformer,
+                    AlignDevicesHook(
+                        execution_device=torch.device("cuda:1"),
+                        io_same_device=True,
+                    ),
+                    append=False,
+                )
+                print("[engine] align hook attached to conditional transformer (cuda:1<->cuda:0)")
             except Exception as exc:  # noqa: BLE001
                 print(f"[engine] align hook attach failed: {exc}")
 
             self._assert_no_meta(pipe)
+            parallel = type(pipe).__name__ == "_ParallelIdeogram4"
             self.device_info = {"mode": "cuda-split", "gpus": names,
-                                "layout": "text_encoder+vae@0, transformers@1"}
+                                "parallel": parallel,
+                                "layout": "enc+uncond+vae@0, transformer@1"}
             return pipe
         except Exception as exc:  # noqa: BLE001
             import traceback
             traceback.print_exc()
             print(f"[engine] per-component split load failed ({exc}); will try balanced")
             return None
+
+    def _parallel_pipeline_class(self):
+        """Subclass of Ideogram4Pipeline whose denoising loop runs the
+        conditional (cuda:1) and unconditional (cuda:0) transformer passes
+        CONCURRENTLY in two threads. Because the two transformers sit on
+        different GPUs with independent CUDA streams, the heavy forwards overlap
+        and per-step time roughly halves. Everything else (encode, schedule,
+        VAE decode) is copied verbatim from the stock __call__. Returns None on
+        any import/shape surprise so the caller falls back to the stock class.
+        """
+        torch = self._torch
+        try:
+            import threading as _th
+
+            from diffusers import Ideogram4Pipeline
+            from diffusers.pipelines.ideogram4 import pipeline_ideogram4 as _p
+        except Exception as exc:  # noqa: BLE001
+            print(f"[engine] parallel pipeline unavailable ({exc}); using stock loop")
+            return None
+
+        class _ParallelIdeogram4(Ideogram4Pipeline):
+            @torch.no_grad()
+            def __call__(
+                self, prompt=None, height=2048, width=2048, num_inference_steps=48,
+                guidance_scale=None, guidance_schedule=(7.0,) * 45 + (3.0,) * 3,
+                mu=0.0, std=1.5, prompt_upsampling=False,
+                prompt_upsampling_temperature=_p.PROMPT_UPSAMPLE_TEMPERATURE,
+                max_sequence_length=2048, num_images_per_prompt=1, generator=None,
+                latents=None, output_type="pil", return_dict=True,
+                callback_on_step_end=None, callback_on_step_end_tensor_inputs=["latents"],
+            ):
+                self.check_inputs(
+                    prompt=prompt, height=height, width=width,
+                    num_inference_steps=num_inference_steps, guidance_scale=guidance_scale,
+                    guidance_schedule=guidance_schedule,
+                    callback_on_step_end_tensor_inputs=callback_on_step_end_tensor_inputs,
+                )
+                if isinstance(prompt, str):
+                    batch_size = 1
+                elif isinstance(prompt, list):
+                    batch_size = len(prompt)
+                device = self._execution_device
+                self._guidance_scale = guidance_scale
+                self._interrupt = False
+                if prompt_upsampling:
+                    prompt = self.upsample_prompt(
+                        prompt, height=height, width=width,
+                        temperature=prompt_upsampling_temperature,
+                        generator=generator, device=device,
+                    )
+                grid_h, grid_w = (
+                    height // (self.vae_scale_factor * self.patch_size),
+                    width // (self.vae_scale_factor * self.patch_size),
+                )
+                num_image_tokens = grid_h * grid_w
+                llm_features, position_ids, segment_ids, indicator = self.encode_prompt(
+                    prompt=prompt, grid_h=grid_h, grid_w=grid_w,
+                    max_sequence_length=max_sequence_length, device=device,
+                )
+                llm_features = _p._expand_tensor_to_effective_batch(llm_features, batch_size, num_images_per_prompt)
+                position_ids = _p._expand_tensor_to_effective_batch(position_ids, batch_size, num_images_per_prompt)
+                segment_ids = _p._expand_tensor_to_effective_batch(segment_ids, batch_size, num_images_per_prompt)
+                indicator = _p._expand_tensor_to_effective_batch(indicator, batch_size, num_images_per_prompt)
+                neg_llm_features = torch.zeros(
+                    batch_size * num_images_per_prompt, num_image_tokens,
+                    llm_features.shape[-1], dtype=llm_features.dtype, device=device,
+                )
+                neg_position_ids = position_ids[:, max_sequence_length:]
+                neg_segment_ids = segment_ids[:, max_sequence_length:]
+                neg_indicator = indicator[:, max_sequence_length:]
+                schedule_mu = _p._resolution_aware_mu(height=height, width=width, base_mu=mu)
+                sigmas = _p._logit_normal_sigmas(num_inference_steps, schedule_mu, std=std, device=device)
+                self.scheduler.set_timesteps(sigmas=sigmas.tolist(), device=device)
+                timesteps = self.scheduler.timesteps
+                self._num_timesteps = len(timesteps)
+                if guidance_scale is not None:
+                    guidance_schedule = [float(guidance_scale)] * num_inference_steps
+                gw = torch.as_tensor(guidance_schedule, dtype=torch.float32, device=device)
+                latent_dim = self.transformer.config.in_channels
+                latents = self.prepare_latents(
+                    batch_size=batch_size * num_images_per_prompt, num_image_tokens=num_image_tokens,
+                    latent_dim=latent_dim, dtype=torch.float32, device=device,
+                    generator=generator, latents=latents,
+                )
+                max_text_tokens = max_sequence_length
+                text_z_padding = torch.zeros(
+                    batch_size * num_images_per_prompt, max_text_tokens, latent_dim,
+                    dtype=torch.float32, device=device,
+                )
+                llm_features = llm_features.to(self.transformer.dtype)
+                neg_llm_features = neg_llm_features.to(self.unconditional_transformer.dtype)
+                num_train_timesteps = self.scheduler.config.num_train_timesteps
+                with self.progress_bar(total=num_inference_steps) as progress_bar:
+                    for i, t in enumerate(timesteps):
+                        if self.interrupt:
+                            continue
+                        t_model = 1.0 - (t.float() / num_train_timesteps)
+                        t_model = t_model.expand(batch_size * num_images_per_prompt).to(self.transformer.dtype)
+                        pos_z = torch.cat([text_z_padding, latents], dim=1).to(self.transformer.dtype)
+
+                        out, err = {}, {}
+
+                        def _cond():
+                            try:
+                                o = self.transformer(
+                                    hidden_states=pos_z, timestep=t_model,
+                                    encoder_hidden_states=llm_features, position_ids=position_ids,
+                                    segment_ids=segment_ids, indicator=indicator, return_dict=False,
+                                )[0]
+                                out["pos"] = o[:, max_text_tokens:].to(torch.float32)
+                            except Exception as e:  # noqa: BLE001
+                                err["pos"] = e
+
+                        def _uncond():
+                            try:
+                                o = self.unconditional_transformer(
+                                    hidden_states=latents.to(self.unconditional_transformer.dtype),
+                                    timestep=t_model, encoder_hidden_states=neg_llm_features,
+                                    position_ids=neg_position_ids, segment_ids=neg_segment_ids,
+                                    indicator=neg_indicator, return_dict=False,
+                                )[0]
+                                out["neg"] = o.to(torch.float32)
+                            except Exception as e:  # noqa: BLE001
+                                err["neg"] = e
+
+                        ta = _th.Thread(target=_cond)
+                        tb = _th.Thread(target=_uncond)
+                        ta.start(); tb.start(); ta.join(); tb.join()
+                        if err:
+                            raise next(iter(err.values()))
+                        pos_v, neg_v = out["pos"], out["neg"]
+
+                        self._guidance_scale = guidance_schedule[i]
+                        gw_i = gw[i]
+                        v = gw_i * pos_v + (1.0 - gw_i) * neg_v
+                        latents = self.scheduler.step(-v, t, latents, return_dict=False)[0]
+                        if callback_on_step_end is not None:
+                            callback_kwargs = {k: locals()[k] for k in callback_on_step_end_tensor_inputs}
+                            callback_outputs = callback_on_step_end(self, i, t, callback_kwargs)
+                            latents = callback_outputs.pop("latents", latents)
+                        progress_bar.update()
+
+                if output_type == "latent":
+                    image = latents
+                else:
+                    z = latents
+                    bn_mean = self.vae.bn.running_mean.view(1, 1, -1).to(device=z.device, dtype=z.dtype)
+                    bn_std = torch.sqrt(self.vae.bn.running_var + self.vae.config.batch_norm_eps).view(1, 1, -1)
+                    bn_std = bn_std.to(device=z.device, dtype=z.dtype)
+                    z = z * bn_std + bn_mean
+                    patch = self.patch_size
+                    ae_channels = z.shape[-1] // (patch * patch)
+                    z = z.view(batch_size * num_images_per_prompt, grid_h, grid_w, patch, patch, ae_channels)
+                    z = z.permute(0, 5, 1, 3, 2, 4).contiguous()
+                    z = z.view(batch_size * num_images_per_prompt, ae_channels, grid_h * patch, grid_w * patch)
+                    decoded = self.vae.decode(z.to(self.vae.dtype), return_dict=False)[0]
+                    image = self.image_processor.postprocess(decoded.float(), output_type=output_type)
+
+                self.maybe_free_model_hooks()
+                if not return_dict:
+                    return (image,)
+                return _p.Ideogram4PipelineOutput(images=image)
+
+        return _ParallelIdeogram4
 
     def _load_balanced(self, PipeCls, common, n_gpus, names):
         """Shard the quantized (nf4) model across BOTH T4s via device_map.
