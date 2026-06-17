@@ -153,9 +153,74 @@ class IdeogramEngine:
                 except Exception:  # noqa: BLE001
                     pass
 
+        self._guard_meta_quant_state(pipe)
         self._pipe = pipe
         self.mock = False
         print(f"[engine] ready: {self.device_info}")
+
+    def _guard_meta_quant_state(self, pipe) -> None:
+        """Heal bitsandbytes QuantState objects whose `code` (the fixed nf4
+        codebook) was left on the meta device by accelerate's multi-GPU
+        dispatch. Without this, the first forward pass crashes with
+        `NotImplementedError: Cannot copy out of meta tensor; no data!` when a
+        hook calls QuantState.to(device). The codebook is a constant, so we
+        rebuild any meta `code` from a healthy one (or bnb's nf4 map).
+        """
+        torch = self._torch
+        try:
+            from bitsandbytes.functional import QuantState
+        except Exception as exc:  # noqa: BLE001
+            print(f"[engine] meta QuantState guard skipped (no bnb): {exc}")
+            return
+
+        # 1) Find a reference (non-meta) nf4 codebook from the loaded weights.
+        ref_code = None
+        try:
+            for _, module in pipe.components.items() if hasattr(pipe, "components") else []:
+                if not hasattr(module, "modules"):
+                    continue
+                for m in module.modules():
+                    qs = getattr(getattr(m, "weight", None), "quant_state", None)
+                    code = getattr(qs, "code", None)
+                    if isinstance(code, torch.Tensor) and not code.is_meta:
+                        ref_code = code.detach().to("cpu")
+                        break
+                if ref_code is not None:
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+
+        # 2) Fallback: regenerate the canonical nf4 codebook.
+        if ref_code is None:
+            try:
+                from bitsandbytes.functional import create_normal_map
+                ref_code = create_normal_map().detach().to("cpu")
+            except Exception:  # noqa: BLE001
+                ref_code = torch.tensor(
+                    [-1.0, -0.6961928, -0.5250731, -0.3949175, -0.2844414,
+                     -0.1847734, -0.0910500, 0.0, 0.0795803, 0.1609302,
+                     0.2461123, 0.3379152, 0.4407098, 0.5626170, 0.7229568, 1.0],
+                    dtype=torch.float32,
+                )
+
+        if getattr(QuantState, "_meta_guarded", False):
+            return
+        _orig_to = QuantState.to
+
+        def _safe_to(self, device, _orig_to=_orig_to, _ref=ref_code):
+            code = getattr(self, "code", None)
+            if isinstance(code, torch.Tensor) and code.is_meta and _ref is not None:
+                self.code = _ref.to(device=device, dtype=code.dtype)
+            ns = getattr(self, "state2", None)
+            if ns is not None:
+                nc = getattr(ns, "code", None)
+                if isinstance(nc, torch.Tensor) and nc.is_meta and _ref is not None:
+                    ns.code = _ref.to(device=device, dtype=nc.dtype)
+            return _orig_to(self, device)
+
+        QuantState.to = _safe_to
+        QuantState._meta_guarded = True
+        print("[engine] bitsandbytes meta-QuantState guard installed")
 
     def _preload_cuda_libs(self) -> None:
         """Preload CUDA shared libs (esp. libnvJitLink) from the pip `nvidia-*`
