@@ -295,10 +295,16 @@ h1, h2, .brand-text, .big { font-family: "Comfortaa", "Nunito", sans-serif; }
 /* ---------- Модальне вікно ---------- */
 .modal { position: fixed; inset: 0; z-index: 70; background: rgba(40,30,45,.55); backdrop-filter: blur(5px); display: grid; place-items: center; padding: 24px; animation: fade .25s both; }
 /* The author `display: grid/grid` above overrides the UA `[hidden]{display:none}`
-   rule, so setting `.hidden = true` in JS never actually closed these overlays
-   (the ✕ / "Закрити" buttons looked dead). Restore it with a higher-specificity
-   attribute selector so close + Escape work. */
+   rule, so setting `.hidden = true` in JS never actually closed these overlays.
+   A global belt-and-suspenders rule: anything with the `hidden` attribute is
+   hidden, period — fixes the options panel, modals, lightbox and any future one. */
+[hidden] { display: none !important; }
 .modal[hidden], .lightbox[hidden] { display: none !important; }
+/* Options panel header + close button */
+.opt-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.opt-head span { font-weight: 800; font-size: 16px; color: var(--ink); }
+.opt-close { border: none; background: #f1e9f3; color: var(--ink); width: 34px; height: 34px; border-radius: 50%; font-size: 16px; cursor: pointer; line-height: 1; transition: background .15s, transform .15s; }
+.opt-close:hover { background: #e7d9ec; transform: scale(1.05); }
 .modal-card { position: relative; background: #fff; border-radius: 24px; padding: 34px 30px; max-width: 480px; width: 100%; box-shadow: var(--shadow); animation: rise .35s both; }
 .modal-card h2 { margin: 0 0 18px; font-size: 24px; }
 .help-steps { padding-left: 22px; line-height: 1.7; font-size: 17px; }
