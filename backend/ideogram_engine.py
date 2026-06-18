@@ -139,7 +139,7 @@ class IdeogramEngine:
             torch.set_num_threads(os.cpu_count() or 4)
         except Exception:  # noqa: BLE001
             pass
-        print("[engine] ===== Мамина Студія engine v2 (speed stack) =====")
+        print("[engine] ===== Мамина Студія engine v2.2 (mem-efficient attention) =====")
         self._preload_cuda_libs()
         n_gpus = torch.cuda.device_count()
         names = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
@@ -166,6 +166,27 @@ class IdeogramEngine:
                     pass
 
         self._guard_meta_quant_state(pipe)
+
+        # v2.2: force memory-efficient attention. The Ideogram4 attention passes
+        # a block-diagonal mask; on a T4 the math/flash paths materialise the
+        # full NxN score matrix (~9GB at 1024^2) -> OOM even with weights split.
+        # The mem-efficient SDPA kernel computes attention in tiles without that
+        # matrix, slashing activation memory AND speeding attention up.
+        try:
+            torch.backends.cuda.enable_flash_sdp(False)        # not on Turing
+            torch.backends.cuda.enable_math_sdp(False)         # the NxN hog
+            torch.backends.cuda.enable_mem_efficient_sdp(True) # low-memory path
+            print("[engine] forced memory-efficient SDPA attention")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[engine] sdpa backend set skipped: {exc}")
+        for _n, _m in (pipe.components.items() if hasattr(pipe, "components") else []):
+            fn = getattr(_m, "set_attention_backend", None)
+            if callable(fn):
+                try:
+                    fn("native")  # route dispatch_attention_fn -> torch SDPA
+                except Exception:  # noqa: BLE001
+                    pass
+
         self._pipe = pipe
         self.mock = False
         print(f"[engine] ready: {self.device_info}")
