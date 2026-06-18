@@ -139,7 +139,7 @@ class IdeogramEngine:
             torch.set_num_threads(os.cpu_count() or 4)
         except Exception:  # noqa: BLE001
             pass
-        print("[engine] ===== Мамина Студія engine v2.3 (no_grad threads + mem-eff attn) =====")
+        print("[engine] ===== Мамина Студія engine v3 (step caching + no_grad + mem-eff attn) =====")
         self._preload_cuda_libs()
         n_gpus = torch.cuda.device_count()
         names = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
@@ -461,6 +461,13 @@ class IdeogramEngine:
                     print("[engine] encoder hooks stripped; CPU-offload during denoise enabled (1024^2 parallel)")
                 except Exception as exc:  # noqa: BLE001
                     print(f"[engine] encoder offload setup skipped: {exc}")
+                # v3: step-caching interval (1 = off). Read from settings.
+                try:
+                    pipe._cache_interval = max(1, int(getattr(settings, "cache_interval", 1)))
+                    if pipe._cache_interval > 1:
+                        print(f"[engine] step caching ON: recompute every {pipe._cache_interval} steps (mid-schedule)")
+                except Exception:  # noqa: BLE001
+                    pipe._cache_interval = 1
 
             self._assert_no_meta(pipe)
             self.device_info = {"mode": "cuda-split", "gpus": names,
@@ -582,48 +589,65 @@ class IdeogramEngine:
                 llm_features = llm_features.to(self.transformer.dtype)
                 neg_llm_features = neg_llm_features.to(self.unconditional_transformer.dtype)
                 num_train_timesteps = self.scheduler.config.num_train_timesteps
+                # v3: step caching. The transformer passes are the expensive part;
+                # consecutive flow-matching steps produce very similar velocities.
+                # So recompute them only every `cache_interval` steps in the middle
+                # of the schedule and REUSE the cached velocities in between
+                # (always re-blended with the current step's guidance weight, so
+                # the polish schedule is still honoured). The first/last `warm`
+                # steps are always computed — they set structure and final detail.
+                cache_int = max(1, int(getattr(self, "_cache_interval", 1)))
+                warm = 2
+                cached_pos = cached_neg = None
                 with self.progress_bar(total=num_inference_steps) as progress_bar:
                     for i, t in enumerate(timesteps):
                         if self.interrupt:
                             continue
                         t_model = 1.0 - (t.float() / num_train_timesteps)
                         t_model = t_model.expand(batch_size * num_images_per_prompt).to(self.transformer.dtype)
-                        pos_z = torch.cat([text_z_padding, latents], dim=1).to(self.transformer.dtype)
 
-                        out, err = {}, {}
+                        is_full = (
+                            cache_int <= 1 or cached_pos is None
+                            or i < warm or i >= self._num_timesteps - warm
+                            or ((i - warm) % cache_int == 0)
+                        )
+                        if is_full:
+                            pos_z = torch.cat([text_z_padding, latents], dim=1).to(self.transformer.dtype)
+                            out, err = {}, {}
 
-                        def _cond():
-                            try:
-                                with torch.no_grad():
-                                    o = self.transformer(
-                                        hidden_states=pos_z, timestep=t_model,
-                                        encoder_hidden_states=llm_features, position_ids=position_ids,
-                                        segment_ids=segment_ids, indicator=indicator, return_dict=False,
-                                    )[0]
-                                    out["pos"] = o[:, max_text_tokens:].to(torch.float32)
-                            except Exception as e:  # noqa: BLE001
-                                err["pos"] = e
+                            def _cond():
+                                try:
+                                    with torch.no_grad():
+                                        o = self.transformer(
+                                            hidden_states=pos_z, timestep=t_model,
+                                            encoder_hidden_states=llm_features, position_ids=position_ids,
+                                            segment_ids=segment_ids, indicator=indicator, return_dict=False,
+                                        )[0]
+                                        out["pos"] = o[:, max_text_tokens:].to(torch.float32)
+                                except Exception as e:  # noqa: BLE001
+                                    err["pos"] = e
 
-                        def _uncond():
-                            try:
-                                with torch.no_grad():
-                                    o = self.unconditional_transformer(
-                                        hidden_states=latents.to(self.unconditional_transformer.dtype),
-                                        timestep=t_model, encoder_hidden_states=neg_llm_features,
-                                        position_ids=neg_position_ids, segment_ids=neg_segment_ids,
-                                        indicator=neg_indicator, return_dict=False,
-                                    )[0]
-                                    out["neg"] = o.to(torch.float32)
-                            except Exception as e:  # noqa: BLE001
-                                err["neg"] = e
+                            def _uncond():
+                                try:
+                                    with torch.no_grad():
+                                        o = self.unconditional_transformer(
+                                            hidden_states=latents.to(self.unconditional_transformer.dtype),
+                                            timestep=t_model, encoder_hidden_states=neg_llm_features,
+                                            position_ids=neg_position_ids, segment_ids=neg_segment_ids,
+                                            indicator=neg_indicator, return_dict=False,
+                                        )[0]
+                                        out["neg"] = o.to(torch.float32)
+                                except Exception as e:  # noqa: BLE001
+                                    err["neg"] = e
 
-                        ta = _th.Thread(target=_cond)
-                        tb = _th.Thread(target=_uncond)
-                        ta.start(); tb.start(); ta.join(); tb.join()
-                        if err:
-                            raise next(iter(err.values()))
-                        pos_v, neg_v = out["pos"], out["neg"]
+                            ta = _th.Thread(target=_cond)
+                            tb = _th.Thread(target=_uncond)
+                            ta.start(); tb.start(); ta.join(); tb.join()
+                            if err:
+                                raise next(iter(err.values()))
+                            cached_pos, cached_neg = out["pos"], out["neg"]
 
+                        pos_v, neg_v = cached_pos, cached_neg
                         self._guidance_scale = guidance_schedule[i]
                         gw_i = gw[i]
                         v = gw_i * pos_v + (1.0 - gw_i) * neg_v
