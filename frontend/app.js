@@ -752,6 +752,7 @@ function init() {
 
   // налаштування
   $("optBtn").onclick = () => { if (state.mode !== "edit") $("optionsPanel").hidden = !$("optionsPanel").hidden; };
+  { const _oc = $("optClose"); if (_oc) _oc.onclick = () => ($("optionsPanel").hidden = true); }
   document.querySelectorAll("#countPills button").forEach((b) => {
     b.onclick = () => {
       document.querySelectorAll("#countPills button").forEach((x) => x.classList.remove("active"));
