@@ -139,7 +139,7 @@ class IdeogramEngine:
             torch.set_num_threads(os.cpu_count() or 4)
         except Exception:  # noqa: BLE001
             pass
-        print("[engine] ===== Мамина Студія engine v3.1 (gen-2 device fix + caching) =====")
+        print("[engine] ===== Мамина Студія engine v3.3 (no false-positive prompt block) =====")
         self._preload_cuda_libs()
         n_gpus = torch.cuda.device_count()
         names = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
@@ -768,12 +768,19 @@ class IdeogramEngine:
     def _expand_prompt(self, prompt: str) -> str:
         """
         Optionally turn a casual prompt into Ideogram's structured JSON caption
-        via the free hosted "magic prompt" API. Falls back to the raw prompt
-        on any error so generation never blocks on the network.
+        via the hosted "magic prompt" API. That endpoint is Hive-moderated and
+        can FALSE-POSITIVE on wholesome prompts (e.g. "Happy Birthday cake"),
+        returning a block/refusal message. We must never let such a response
+        replace the user's wording — on any moderation/error/odd shape we fall
+        back to the literal prompt, which the local model renders fine (the
+        diffusers pipeline carries no runtime Hive filter). Set IDEOGRAM_API_KEY
+        only if you actually want the (moderated) expansion.
         """
         if not settings.magic_prompt_key:
             return prompt
         try:
+            import json as _json
+
             import requests
 
             resp = requests.post(
@@ -783,7 +790,17 @@ class IdeogramEngine:
                 timeout=15,
             )
             if resp.ok:
-                return resp.json().get("prompt", prompt)
+                data = resp.json() if resp.content else {}
+                # The API returns the structured caption under "json_prompt";
+                # older shapes used "prompt".
+                jp = data.get("json_prompt")
+                cand = _json.dumps(jp, ensure_ascii=False) if isinstance(jp, dict) else data.get("prompt")
+                blockish = ("block", "moderat", "policy", "violat", "not allowed",
+                            "cannot", "unable", "security", "rejected", "flagged", "unsafe")
+                if (isinstance(cand, str) and cand.strip()
+                        and not any(w in cand.lower() for w in blockish)):
+                    return cand
+                print("[engine] magic-prompt returned no usable expansion (moderated?); using literal prompt")
         except Exception as exc:  # noqa: BLE001
             print(f"[engine] magic-prompt skipped: {exc}")
         return prompt
