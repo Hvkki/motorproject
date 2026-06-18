@@ -699,10 +699,46 @@ function loadHistory() {
   try { return JSON.parse(localStorage.getItem("mama_history") || "[]"); }
   catch { return []; }
 }
-function saveToHistory(prompt, thumb) {
+/* Downscale a full image to a tiny JPEG thumbnail so history fits in
+   localStorage (full base64 images are ~1-2MB each and overflow the ~5MB quota). */
+function makeThumb(dataUrl, size = 128) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const s = Math.min(size / Math.max(im.width, im.height), 1);
+        const w = Math.max(1, Math.round(im.width * s));
+        const h = Math.max(1, Math.round(im.height * s));
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d").drawImage(im, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", 0.7));
+      } catch (e) { reject(e); }
+    };
+    im.onerror = reject;
+    im.src = dataUrl;
+  });
+}
+async function saveToHistory(prompt, img) {
+  let thumb = "";
+  try { thumb = await makeThumb(img, 128); } catch { thumb = ""; }
   state.history.unshift({ prompt, thumb, t: Date.now() });
-  state.history = state.history.slice(0, 20);
-  localStorage.setItem("mama_history", JSON.stringify(state.history));
+  state.history = state.history.slice(0, 12);
+  try {
+    localStorage.setItem("mama_history", JSON.stringify(state.history));
+  } catch (e) {
+    // Quota exceeded — drop oldest entries until it fits; never crash generation.
+    let saved = false;
+    while (state.history.length > 1 && !saved) {
+      state.history.pop();
+      try { localStorage.setItem("mama_history", JSON.stringify(state.history)); saved = true; }
+      catch { /* keep dropping */ }
+    }
+    if (!saved) {
+      try { localStorage.setItem("mama_history", JSON.stringify(
+        state.history.map((h) => ({ prompt: h.prompt, t: h.t, thumb: "" })))); } catch { /* give up quietly */ }
+    }
+  }
   renderHistory();
 }
 function renderHistory() {
