@@ -58,8 +58,17 @@ CHAT_SYSTEM = """\
   "reply": "тепле повідомлення українською",
   "questions": ["коротке питання"],
   "actions": [
-    {"tool":"generate","prompt":"детальний образний опис (можна англійською)","count":4,"format":"square|landscape|portrait|banner","style":"опис стилю або порожньо"},
-    {"tool":"img2img","prompt":"...","strength":0.6},
+    {"tool":"generate","prompt":{
+        "description":"детальний опис сцени АНГЛІЙСЬКОЮ, 2–4 речення",
+        "subject":"головний обʼєкт",
+        "style":"художній стиль або техніка",
+        "setting":"оточення / фон",
+        "lighting":"освітлення",
+        "colors":"кольорова палітра",
+        "mood":"настрій",
+        "details":"важливі дрібні деталі"
+      },"count":4,"format":"square|landscape|portrait|banner"},
+    {"tool":"img2img","prompt":{"description":"...","style":"...","details":"..."},"strength":0.6},
     {"tool":"variations"},
     {"tool":"upscale"},
     {"tool":"edit"},
@@ -69,7 +78,12 @@ CHAT_SYSTEM = """\
 Правила:
 - Бракує деталей → questions заповнені, actions = [].
 - Достатньо деталей → actions заповнені, questions = [].
-- Промпт у generate/img2img має бути конкретним і образним.
+- Поле "prompt" у generate/img2img — це ДЕТАЛЬНИЙ структурований JSON-опис
+  АНГЛІЙСЬКОЮ (модель Ideogram 4 навчена саме на таких структурованих підписах і
+  слухається їх значно краще). Розгорни просту ідею користувачки у багатий
+  конкретний опис: матеріали, освітлення, кольори, композицію, настрій, дрібні
+  деталі. Описуй щедро та образно, але НЕ додавай того, чого користувачка явно
+  не просила, і зберігай її задум.
 - Не пиши, що вже все зроблено — інструменти виконає застосунок після відповіді.
 """
 
@@ -204,7 +218,14 @@ class OllamaAgent:
                 continue
             item: dict[str, Any] = {"tool": tool}
             if tool in ("generate", "img2img", "variations"):
-                item["prompt"] = str(a.get("prompt", "")).strip()
+                p = a.get("prompt", "")
+                # gemma now returns the prompt as a structured Ideogram-4 JSON
+                # object; serialise it to the JSON-string caption the model
+                # expects. Plain strings (older behaviour) pass through.
+                if isinstance(p, dict):
+                    p = {k: v for k, v in p.items() if str(v).strip()}
+                    p = json.dumps(p, ensure_ascii=False)
+                item["prompt"] = str(p).strip()
             if tool == "generate":
                 item["count"] = max(1, min(int(a.get("count", 4) or 4), 6))
                 item["format"] = a.get("format", "square")
