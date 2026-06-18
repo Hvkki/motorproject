@@ -420,3 +420,78 @@ h1, h2, .brand-text, .big { font-family: "Comfortaa", "Nunito", sans-serif; }
 .gallery .tile:nth-child(4) { animation-delay: .18s; }
 .gallery .tile:nth-child(5) { animation-delay: .24s; }
 .gallery .tile:nth-child(6) { animation-delay: .30s; }
+
+
+/* ============================================================
+   v4 — "Ideogram-style" clean light theme (override layer)
+   Appended last so it wins the cascade. Appearance only —
+   no markup/JS changes, so all controls keep working.
+   ============================================================ */
+:root {
+  --bg: #ffffff;
+  --bg-2: #ffffff;
+  --ink: #18181b;
+  --ink-soft: #6b7280;
+  --card: #ffffff;
+  --line: #ececf0;
+  --accent: #7c5cff;
+  --pink: #7c5cff;
+  --pink-deep: #6b46ff;
+  --violet: #7c5cff;
+  --accent-grad: linear-gradient(135deg, #7c5cff 0%, #9d7bff 100%);
+  --shadow: 0 10px 30px rgba(20, 20, 40, 0.08);
+  --shadow-soft: 0 4px 16px rgba(20, 20, 40, 0.05);
+}
+
+body { background: #ffffff; font-size: 17px; }
+
+/* Clean white backdrop — drop the warm aurora blobs */
+.aurora, .blob { display: none !important; }
+
+/* ---- Sidebar: light, bordered, minimal (like Ideogram's nav) ---- */
+.sidebar { background: #fafafa; border-right: 1px solid var(--line); box-shadow: none; }
+.brand-text { color: var(--ink); }
+.history-item { border-radius: 10px; }
+.history-item:hover { background: #f1f0f5; }
+
+/* primary "new chat" button -> solid accent */
+.big-btn { background: var(--accent) !important; color: #fff !important; border: none !important; box-shadow: none !important; }
+.big-btn:hover { filter: brightness(1.05); }
+.ghost-btn { border: 1px solid var(--line); background: #fff; border-radius: 12px; }
+
+/* ---- Elegant serif greeting headline (Ideogram's "What will you create?") ---- */
+.hello, #topHello {
+  font-family: Georgia, "Times New Roman", serif !important;
+  font-weight: 500; font-size: clamp(26px, 4vw, 40px); letter-spacing: .2px; color: var(--ink);
+}
+
+/* ---- Mode tabs -> clean pill with purple active outline ---- */
+.seg-item { border-radius: 12px; }
+.seg-item.active { background: #fff !important; color: var(--accent) !important; border: 1.5px solid var(--accent) !important; box-shadow: none !important; }
+
+/* ---- Composer -> Ideogram rounded pill with a dark circular submit ---- */
+.composer { background: #fff !important; border: 1px solid var(--line) !important; border-radius: 28px !important; box-shadow: var(--shadow) !important; }
+#promptInput { background: transparent !important; font-size: 17px; }
+.round-btn { color: var(--ink-soft) !important; background: transparent !important; }
+.round-btn:hover { background: #f1f0f5 !important; }
+.send-btn {
+  background: #111 !important; color: #fff !important; border: none !important;
+  width: 46px; height: 46px; border-radius: 50% !important; box-shadow: none !important;
+}
+.send-btn:hover { background: #000 !important; }
+
+/* ---- Options panel + style chips -> Ideogram category-pill look ---- */
+.options, .edit-tools { border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); }
+.style-chip, .count-pills button, #ratioPills button {
+  border: 1px solid var(--line) !important; background: #fff !important; border-radius: 14px !important;
+  color: var(--ink) !important; box-shadow: none !important;
+}
+.style-chip.active, .count-pills button.active, #ratioPills button.active {
+  border-color: var(--accent) !important; color: var(--accent) !important; background: #f6f3ff !important;
+}
+
+/* ---- Image grid: clean cards with subtle shadow ---- */
+.tile { border-radius: 14px; box-shadow: var(--shadow-soft); border: 1px solid var(--line); }
+
+/* range slider accent */
+input[type="range"] { accent-color: var(--accent); }
