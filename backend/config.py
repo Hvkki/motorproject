@@ -46,9 +46,9 @@ class Settings:
     dual_gpu: bool = _env_bool("DUAL_GPU", True)
 
     # Run the conditional + unconditional transformer passes concurrently on the
-    # two GPUs (~2x faster denoising). OFF by default: it needs each transformer
-    # on its own GPU, so the encoder must co-reside with one transformer, which
-    # OOMs at 1024^2 on 2x T4. Safe at <=768^2. Set CFG_PARALLEL=1 to enable.
+    # two GPUs (~2x faster denoising). v2: the engine now CPU-offloads the idle
+    # text encoder during denoising, freeing the VRAM that previously made this
+    # OOM at 1024^2 — so it is safe to enable at full 1024^2. Set CFG_PARALLEL=1.
     cfg_parallel: bool = _env_bool("CFG_PARALLEL", False)
 
     # Hugging Face token (weights are gated). Read lazily by the engine.
@@ -63,6 +63,11 @@ class Settings:
     default_height: int = _env_int("DEFAULT_HEIGHT", 1024)
     default_steps: int = _env_int("DEFAULT_STEPS", 20)
     default_guidance: float = float(os.environ.get("DEFAULT_GUIDANCE", "6.0"))
+    # v2: cap the text token budget. The pipeline pads every prompt to this many
+    # tokens and the conditional transformer processes them all each step; real
+    # prompts are tiny, so a smaller cap is faster with no quality change. Raise
+    # via MAX_SEQ_LEN if you ever feed very long prompts.
+    max_seq_len: int = _env_int("MAX_SEQ_LEN", 512)
     # Hard cap so a single request can never exhaust VRAM / hang the GPUs.
     max_batch: int = _env_int("MAX_BATCH", 4)
     max_side: int = _env_int("MAX_SIDE", 2048)
