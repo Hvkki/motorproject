@@ -67,6 +67,11 @@ class Settings:
     # tokens and the conditional transformer processes them all each step; real
     # prompts are tiny, so a smaller cap is faster with no quality change. Raise
     # via MAX_SEQ_LEN if you ever feed very long prompts.
+    # v3: step caching. Recompute the transformer passes only every Nth step in
+    # the middle of the denoising schedule and reuse the cached velocity on the
+    # others (~Nx faster). 1 = off, 2 ≈ 1.8x (safe), 3 ≈ 2.2x (aggressive/"max"),
+    # 4+ = fastest but visible quality drift. First/last 2 steps always run.
+    cache_interval: int = _env_int("CACHE_INTERVAL", 1)
     max_seq_len: int = _env_int("MAX_SEQ_LEN", 512)
     # Hard cap so a single request can never exhaust VRAM / hang the GPUs.
     max_batch: int = _env_int("MAX_BATCH", 4)
