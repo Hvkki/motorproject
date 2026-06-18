@@ -139,7 +139,7 @@ class IdeogramEngine:
             torch.set_num_threads(os.cpu_count() or 4)
         except Exception:  # noqa: BLE001
             pass
-        print("[engine] ===== Мамина Студія engine v2.2 (mem-efficient attention) =====")
+        print("[engine] ===== Мамина Студія engine v2.3 (no_grad threads + mem-eff attn) =====")
         self._preload_cuda_libs()
         n_gpus = torch.cuda.device_count()
         names = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
@@ -543,6 +543,9 @@ class IdeogramEngine:
                 if _offload_enc:
                     try:
                         self.text_encoder.to("cpu")
+                        import gc as _gc
+                        _gc.collect()
+                        torch.cuda.synchronize()
                         torch.cuda.empty_cache()
                     except Exception:  # noqa: BLE001
                         pass
@@ -591,24 +594,26 @@ class IdeogramEngine:
 
                         def _cond():
                             try:
-                                o = self.transformer(
-                                    hidden_states=pos_z, timestep=t_model,
-                                    encoder_hidden_states=llm_features, position_ids=position_ids,
-                                    segment_ids=segment_ids, indicator=indicator, return_dict=False,
-                                )[0]
-                                out["pos"] = o[:, max_text_tokens:].to(torch.float32)
+                                with torch.no_grad():
+                                    o = self.transformer(
+                                        hidden_states=pos_z, timestep=t_model,
+                                        encoder_hidden_states=llm_features, position_ids=position_ids,
+                                        segment_ids=segment_ids, indicator=indicator, return_dict=False,
+                                    )[0]
+                                    out["pos"] = o[:, max_text_tokens:].to(torch.float32)
                             except Exception as e:  # noqa: BLE001
                                 err["pos"] = e
 
                         def _uncond():
                             try:
-                                o = self.unconditional_transformer(
-                                    hidden_states=latents.to(self.unconditional_transformer.dtype),
-                                    timestep=t_model, encoder_hidden_states=neg_llm_features,
-                                    position_ids=neg_position_ids, segment_ids=neg_segment_ids,
-                                    indicator=neg_indicator, return_dict=False,
-                                )[0]
-                                out["neg"] = o.to(torch.float32)
+                                with torch.no_grad():
+                                    o = self.unconditional_transformer(
+                                        hidden_states=latents.to(self.unconditional_transformer.dtype),
+                                        timestep=t_model, encoder_hidden_states=neg_llm_features,
+                                        position_ids=neg_position_ids, segment_ids=neg_segment_ids,
+                                        indicator=neg_indicator, return_dict=False,
+                                    )[0]
+                                    out["neg"] = o.to(torch.float32)
                             except Exception as e:  # noqa: BLE001
                                 err["neg"] = e
 
