@@ -139,7 +139,7 @@ class IdeogramEngine:
             torch.set_num_threads(os.cpu_count() or 4)
         except Exception:  # noqa: BLE001
             pass
-        print("[engine] ===== Мамина Студія engine v3 (step caching + no_grad + mem-eff attn) =====")
+        print("[engine] ===== Мамина Студія engine v3.1 (gen-2 device fix + caching) =====")
         self._preload_cuda_libs()
         n_gpus = torch.cuda.device_count()
         names = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
@@ -520,7 +520,19 @@ class IdeogramEngine:
                     batch_size = 1
                 elif isinstance(prompt, list):
                     batch_size = len(prompt)
-                device = self._execution_device
+                # v3.1: if the encoder is CPU-offloaded, bring it back to its GPU
+                # BEFORE reading _execution_device. A hookless encoder stranded on
+                # CPU (from the previous image's offload) makes _execution_device
+                # report CPU on the 2nd+ image -> token_ids land on CPU -> the
+                # embedding lookup crashes ('index is on cpu, ... cuda:0').
+                _offload_enc = getattr(self, "_offload_encoder", False)
+                _enc_gpu = getattr(self, "_encoder_gpu", "cuda:0")
+                if _offload_enc:
+                    try:
+                        self.text_encoder.to(_enc_gpu)
+                    except Exception:  # noqa: BLE001
+                        pass
+                device = torch.device(_enc_gpu) if _offload_enc else self._execution_device
                 self._guidance_scale = guidance_scale
                 self._interrupt = False
                 if prompt_upsampling:
@@ -534,19 +546,12 @@ class IdeogramEngine:
                     width // (self.vae_scale_factor * self.patch_size),
                 )
                 num_image_tokens = grid_h * grid_w
-                # v2: bring the encoder back to GPU just for encoding, then send
-                # it to CPU so the denoising loop has the VRAM for 1024^2.
-                _offload_enc = getattr(self, "_offload_encoder", False)
-                _enc_gpu = getattr(self, "_encoder_gpu", "cuda:0")
-                if _offload_enc:
-                    try:
-                        self.text_encoder.to(_enc_gpu)
-                    except Exception:  # noqa: BLE001
-                        pass
                 llm_features, position_ids, segment_ids, indicator = self.encode_prompt(
                     prompt=prompt, grid_h=grid_h, grid_w=grid_w,
                     max_sequence_length=max_sequence_length, device=device,
                 )
+                # v3.1: park the (now idle) encoder on CPU to free ~5GB for the
+                # 1024^2 denoising loop. (It was brought back to GPU at the top.)
                 if _offload_enc:
                     try:
                         self.text_encoder.to("cpu")
