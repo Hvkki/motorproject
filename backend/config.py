@@ -46,10 +46,12 @@ class Settings:
     dual_gpu: bool = _env_bool("DUAL_GPU", True)
 
     # Run the conditional + unconditional transformer passes concurrently on the
-    # two GPUs (~2x faster denoising). v2: the engine now CPU-offloads the idle
-    # text encoder during denoising, freeing the VRAM that previously made this
-    # OOM at 1024^2 — so it is safe to enable at full 1024^2. Set CFG_PARALLEL=1.
-    cfg_parallel: bool = _env_bool("CFG_PARALLEL", False)
+    # two GPUs (~1.7x faster denoising on top of the fp16 fix). v2: the engine
+    # CPU-offloads the idle text encoder during denoising, freeing the VRAM that
+    # previously made this OOM at 1024^2 — verified safe at full 1024^2 (cuda:0
+    # ~10GB/5.5 free, cuda:1 ~8.4GB/7.2 free). Falls back to sequential if the
+    # parallel pipeline can't be built. Disable with CFG_PARALLEL=0.
+    cfg_parallel: bool = _env_bool("CFG_PARALLEL", True)
 
     # Hugging Face token (weights are gated). Read lazily by the engine.
     hf_token: str | None = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
@@ -61,7 +63,11 @@ class Settings:
     # --- Generation defaults (tuned for T4 speed/quality balance) ---
     default_width: int = _env_int("DEFAULT_WIDTH", 1024)
     default_height: int = _env_int("DEFAULT_HEIGHT", 1024)
-    default_steps: int = _env_int("DEFAULT_STEPS", 20)
+    # Bumped 20 -> 24: the fp16 + parallel-CFG speedups (~8.7x faster/step) make
+    # more sampling steps affordable, so the default now yields visibly sharper,
+    # more detailed images while a single image still renders ~7x faster than
+    # the old 20-step default did. The UI quality slider can raise it further.
+    default_steps: int = _env_int("DEFAULT_STEPS", 24)
     default_guidance: float = float(os.environ.get("DEFAULT_GUIDANCE", "6.0"))
     # v2: cap the text token budget. The pipeline pads every prompt to this many
     # tokens and the conditional transformer processes them all each step; real
