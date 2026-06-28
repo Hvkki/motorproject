@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Мамина Студія</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='none' stroke='%23111' stroke-width='8'/%3E%3C/svg%3E" />
+</head>
+<body class="ig">
+  <!-- ===================== Sidebar ===================== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="ig-brand">
+      <svg class="ig-mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3.4" fill="currentColor"/></svg>
+      <span class="ig-brandname">Мамина Студія</span>
+    </div>
+
+    <button class="ig-new" id="newChatBtn">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+      Нове зображення
+    </button>
+
+    <nav class="ig-nav" aria-label="Меню">
+      <a class="ig-item active">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 11l8-7 8 7M6 10v9h12v-9"/></svg>
+        Головна
+      </a>
+
+      <p class="ig-section">Бібліотека</p>
+      <nav class="history" id="historyList" aria-label="Історія"></nav>
+      <a class="ig-item ig-static">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 16l5-4 4 3 3-2 6 5"/></svg>
+        Мої зображення
+      </a>
+      <a class="ig-item ig-static">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 7h6l2 2h10v10H3z"/></svg>
+        Колекції
+      </a>
+
+      <p class="ig-section">Інструменти</p>
+      <button class="ig-item" id="agentSettingsBtn">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>
+        Агенти й ключ
+      </button>
+      <button class="ig-item" id="helpBtn">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M9.2 9.2a2.8 2.8 0 015.4 1c0 1.8-2.6 2-2.6 4"/><circle cx="12" cy="17.2" r="1.1" fill="currentColor"/></svg>
+        Як користуватись
+      </button>
+    </nav>
+
+    <div class="status-card" id="statusCard">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">Перевіряю студію…</span>
+    </div>
+  </aside>
+
+  <!-- ===================== Main ===================== -->
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="menuBtn" aria-label="Меню">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <span class="hello" id="topHello"></span>
+      <span class="topbar-spacer"></span>
+      <button class="helper-toggle on" id="helperToggle" style="display:none" title="Розумні агенти, що спілкуються й перевіряють картинки">
+        <span class="ht-dot"></span>Агенти <b class="ht-state">увімкнені</b>
+      </button>
+      <div class="seg" id="modeSeg" role="tablist" aria-label="Режим">
+        <button class="seg-item active" data-mode="create" role="tab">Створити</button>
+        <button class="seg-item" data-mode="edit" role="tab">Підправити</button>
+      </div>
+    </header>
+
+    <section class="stage" id="stage">
+      <h1 class="hero">Що намалюємо?</h1>
+
+      <!-- ===== Prompt box (Ideogram-style) ===== -->
+      <div class="composer">
+        <div class="edit-tools" id="editTools" hidden>
+          <div class="edit-hint"><b>Обведи</b> місце, яке хочеш змінити, і напиши, що там має зʼявитися.</div>
+          <div class="brush-row">
+            <span>Товщина пензля</span>
+            <input type="range" id="brushSize" min="10" max="120" value="55" />
+            <button class="mini-btn" id="undoMask">Скасувати</button>
+            <button class="mini-btn" id="clearMask">Очистити</button>
+          </div>
+        </div>
+
+        <div class="attach-chip" id="attachChip" hidden>
+          <img id="attachThumb" alt="" />
+          <span>Фото додано — напиши, на що його перетворити</span>
+          <button id="attachRemove" aria-label="Прибрати">✕</button>
+        </div>
+
+        <input type="file" id="photoInput" accept="image/*" hidden />
+        <textarea id="promptInput" rows="1" placeholder="Опиши, що намалювати, або додай фото…" autocomplete="off"></textarea>
+
+        <div class="composer-bar">
+          <div class="cb-left">
+            <div class="cb-group" id="countPills" title="Скільки картинок">
+              <button data-count="1">1</button>
+              <button data-count="2">2</button>
+              <button data-count="4" class="active">4</button>
+              <button data-count="6">6</button>
+            </div>
+            <div class="cb-group" id="ratioPills" title="Формат">
+              <button data-w="1024" data-h="1024" class="active">1:1</button>
+              <button data-w="1216" data-h="832">3:2</button>
+              <button data-w="832" data-h="1216">2:3</button>
+              <button data-w="1536" data-h="640">21:9</button>
+            </div>
+            <button class="cb-pill" id="optBtn" aria-label="Більше налаштувань" title="Якість, що виключити">
+              <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="2.4" fill="currentColor"/><circle cx="5" cy="12" r="2.4" fill="currentColor"/><circle cx="19" cy="12" r="2.4" fill="currentColor"/></svg>
+            </button>
+          </div>
+          <div class="cb-right">
+            <button class="round-btn" id="photoBtn" aria-label="Додати фото" title="Перетворити моє фото">
+              <svg viewBox="0 0 24 24" width="20" height="20"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 16l5-4 4 3 3-2 6 5"/></svg>
+            </button>
+            <button class="round-btn mic" id="micBtn" aria-label="Сказати голосом" title="Сказати голосом">
+              <svg viewBox="0 0 24 24" width="20" height="20"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 11a7 7 0 0014 0M12 18v3"/></svg>
+            </button>
+            <button class="send-btn" id="sendBtn" aria-label="Намалювати">
+              <svg viewBox="0 0 24 24" width="20" height="20"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- advanced popover (quality + negative) -->
+        <div class="options" id="optionsPanel" hidden>
+          <div class="opt-head">
+            <span>Додатково</span>
+            <button class="opt-close" id="optClose" type="button" aria-label="Закрити" title="Закрити">✕</button>
+          </div>
+          <div class="opt">
+            <label>Якість <small id="qualityVal">звичайна</small></label>
+            <input type="range" id="qualitySlider" min="12" max="48" value="28" step="4" />
+          </div>
+          <div class="opt" id="strengthOpt" hidden>
+            <label>Наскільки сильно змінити фото? <small id="strengthVal">помірно</small></label>
+            <input type="range" id="strengthSlider" min="20" max="90" value="60" step="5" />
+          </div>
+          <div class="opt">
+            <label>Чого <b>не</b> хочеш бачити?</label>
+            <input type="text" id="negativeInput" placeholder="напр.: розмито, темно" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Category row ===== -->
+      <div class="cat-row" id="styleRow">
+        <button class="style-chip active" data-style="">Авто</button>
+        <button class="style-chip" data-style="професійна фотографія, реалістично, висока деталізація">Фото</button>
+        <button class="style-chip" data-style="олійний живопис, мазки пензля, на полотні">Олія</button>
+        <button class="style-chip" data-style="ніжна акварель, мʼякі переходи">Акварель</button>
+        <button class="style-chip" data-style="аніме, яскраві кольори, стиль манги">Аніме</button>
+        <button class="style-chip" data-style="обʼємний 3D-рендер, мʼяке освітлення, pixar style">3D</button>
+        <button class="style-chip" data-style="дитяча книжкова ілюстрація, мило, тепло">Казка</button>
+        <button class="style-chip" data-style="намальовано олівцем, ескіз, монохром">Олівець</button>
+        <button class="style-chip" data-style="вінтажне фото, плівка, теплі тони, ретро">Ретро</button>
+      </div>
+
+      <!-- ===== Results / examples ===== -->
+      <section class="chat" id="chat" aria-live="polite">
+        <div class="msg assistant intro" id="introMsg">
+          <div class="bubble">
+            <p class="intro-hint">Спробуй одну з ідей або напиши свою</p>
+            <div class="chips" id="ideaChips">
+              <button class="chip">букет півоній у вазі на світанку</button>
+              <button class="chip">руде кошеня у віночку з ромашок</button>
+              <button class="chip">затишний будиночок біля лісу взимку</button>
+              <button class="chip">святковий торт з написом «З Днем Народження»</button>
+              <button class="chip">морський берег з маяком на заході сонця</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <!-- ===================== Lightbox ===================== -->
+  <div class="lightbox" id="lightbox" hidden>
+    <button class="lb-close" id="lbClose" aria-label="Закрити">✕</button>
+    <img id="lbImg" alt="Збільшене зображення" />
+    <div class="lb-actions">
+      <button class="lb-btn" id="lbDownload">Зберегти</button>
+      <button class="lb-btn" id="lbUpscale">Збільшити якість</button>
+      <button class="lb-btn" id="lbEdit">Підправити</button>
+      <button class="lb-btn" id="lbVariations">Ще схожі</button>
+    </div>
+  </div>
+
+  <!-- ===================== Help modal ===================== -->
+  <div class="modal" id="helpModal" hidden>
+    <div class="modal-card">
+      <button class="lb-close dark" id="helpClose" aria-label="Закрити">✕</button>
+      <h2>Як користуватись</h2>
+      <ol class="help-steps">
+        <li><b>Напиши словами</b>, що хочеш побачити — звичайною мовою.</li>
+        <li>Натисни <b>Enter</b>. За хвилинку зʼявляться картинки.</li>
+        <li>Сподобалась? Наведи на неї й натисни <b>Зберегти</b>.</li>
+        <li>Хочеш змінити? Обери <b>«Підправити»</b>, обведи місце і напиши, що там має бути.</li>
+      </ol>
+      <p class="help-note">Підказка: що детальніше опишеш — то краще вийде.</p>
+      <button class="big-btn center" id="helpOk">Зрозуміло</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <!-- ===================== Agent settings modal ===================== -->
+  <div class="modal" id="agentSettings" hidden>
+    <div class="modal-card">
+      <button class="lb-close dark" id="asClose" aria-label="Закрити">✕</button>
+      <h2>Агенти й ключ Ollama</h2>
+      <p class="as-intro"><b>Це необовʼязково.</b> Без ключа студія працює — просто
+        пишеш, і вона малює. Ключ <b>Ollama</b> додає розумних агентів, що
+        спілкуються й перевіряють картинки. Отримати ключ: <span class="as-link">ollama.com</span>.</p>
+      <label class="as-label">Ключ Ollama (необовʼязково)</label>
+      <input type="password" id="asKey" class="as-input" placeholder="встав ключ або залиш порожнім" autocomplete="off" />
+      <label class="as-label">Модель</label>
+      <input type="text" id="asModel" class="as-input" placeholder="gemma4:31b" value="gemma4:31b" />
+      <div class="as-status" id="asStatus"></div>
+      <div class="as-actions">
+        <button class="ghost-btn" id="asTest">Перевірити</button>
+        <button class="big-btn" id="asSave">Зберегти</button>
+      </div>
+      <button class="big-btn as-skip" id="asSkip">Закрити / працювати без агентів</button>
+      <p class="as-note">Ключ зберігається лише у твоєму браузері.</p>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

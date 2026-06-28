@@ -1,0 +1,701 @@
+/* ============================================================
+   Мамина Студія — стилі
+   Тепла, спокійна палітра, великі кнопки, мʼякі анімації.
+   ============================================================ */
+:root {
+  --bg: #fbf7f4;
+  --bg-2: #fdf2f6;
+  --ink: #3b3340;
+  --ink-soft: #6c6275;
+  --card: #ffffff;
+  --line: #efe6ee;
+  --pink: #ff8fbf;
+  --pink-deep: #f06aa0;
+  --violet: #a78bfa;
+  --sky: #7dd3fc;
+  --mint: #86efac;
+  --accent-grad: linear-gradient(135deg, #ff9ec6 0%, #a78bfa 55%, #7dd3fc 100%);
+  --shadow: 0 12px 40px rgba(160, 120, 160, 0.18);
+  --shadow-soft: 0 6px 22px rgba(160, 120, 160, 0.12);
+  --radius: 22px;
+  --radius-sm: 14px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: "Nunito", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  display: flex;
+  overflow: hidden;
+  font-size: 18px;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, .brand-text, .big { font-family: "Comfortaa", "Nunito", sans-serif; }
+
+/* ---------- Декоративний фон (аврора) ---------- */
+.aurora { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: var(--bg); }
+.blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .55; animation: float 18s ease-in-out infinite; }
+.b1 { width: 480px; height: 480px; background: #ffc7e0; top: -120px; left: -80px; }
+.b2 { width: 420px; height: 420px; background: #c9b8ff; bottom: -120px; right: 10%; animation-delay: -6s; }
+.b3 { width: 360px; height: 360px; background: #bfe9ff; top: 30%; right: -100px; animation-delay: -11s; }
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, -30px) scale(1.08); }
+  66% { transform: translate(-30px, 20px) scale(.96); }
+}
+
+/* ---------- Бічна панель ---------- */
+.sidebar {
+  width: 280px; flex-shrink: 0; height: 100vh;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(14px);
+  border-right: 1px solid var(--line);
+  padding: 22px 18px; display: flex; flex-direction: column; gap: 18px;
+  z-index: 30; transition: transform .3s cubic-bezier(.4,0,.2,1);
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark { display: grid; place-items: center; animation: pop .6s ease; }
+.brand-text h1 { font-size: 21px; margin: 0; letter-spacing: .2px; }
+.brand-text p { margin: 2px 0 0; font-size: 13px; color: var(--ink-soft); }
+
+.big-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  border: none; cursor: pointer; color: #fff; font-weight: 800; font-size: 17px;
+  padding: 14px 18px; border-radius: var(--radius-sm);
+  background: var(--accent-grad); background-size: 180% 180%;
+  box-shadow: var(--shadow-soft); transition: transform .15s, box-shadow .2s, background-position .6s;
+  font-family: inherit;
+}
+.big-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow); background-position: 100% 0; }
+.big-btn:active { transform: translateY(0) scale(.98); }
+.big-btn.center { margin: 6px auto 0; width: 100%; }
+
+.history { flex: 1; overflow-y: auto; margin: 4px -6px; padding: 0 6px; }
+.history-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-soft); margin: 6px 8px; }
+.history-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  border: none; background: transparent; cursor: pointer; color: var(--ink);
+  padding: 11px 10px; border-radius: 12px; font-size: 15px; font-family: inherit;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .15s;
+}
+.history-item:hover { background: #f7eef6; }
+.history-item .thumb { width: 26px; height: 26px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+
+.status-card {
+  display: flex; align-items: center; gap: 10px; background: #fff;
+  border: 1px solid var(--line); border-radius: 14px; padding: 11px 13px;
+  font-size: 14px; color: var(--ink-soft); box-shadow: var(--shadow-soft);
+}
+.dot { width: 11px; height: 11px; border-radius: 50%; background: #f4c84a; flex-shrink: 0; box-shadow: 0 0 0 0 rgba(244,200,74,.6); animation: pulse 1.6s infinite; }
+.dot.ok { background: #57c97e; box-shadow: 0 0 0 0 rgba(87,201,126,.6); }
+.dot.mock { background: #f4a04a; }
+.dot.err { background: #f06a6a; animation: none; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(244,200,74,.55);} 70%{ box-shadow: 0 0 0 9px rgba(244,200,74,0);} 100%{ box-shadow:0 0 0 0 rgba(244,200,74,0);} }
+
+.ghost-btn {
+  display: inline-flex; align-items: center; gap: 9px; justify-content: center;
+  background: transparent; border: 1px solid var(--line); color: var(--ink-soft);
+  padding: 11px; border-radius: 12px; cursor: pointer; font-size: 15px; font-family: inherit;
+  transition: background .15s, color .15s;
+}
+.ghost-btn:hover { background: #f7eef6; color: var(--ink); }
+
+/* ---------- Основна частина ---------- */
+.main { flex: 1; height: 100vh; display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  display: flex; align-items: center; gap: 14px; padding: 16px 26px;
+  border-bottom: 1px solid var(--line); background: rgba(255,255,255,.55); backdrop-filter: blur(10px);
+}
+.topbar-title { flex: 1; }
+.hello { font-size: 19px; font-weight: 800; }
+.icon-btn { background: transparent; border: none; color: var(--ink); cursor: pointer; padding: 6px; border-radius: 10px; }
+.only-mobile { display: none; }
+
+.seg { display: flex; background: #f3eaf3; border-radius: 14px; padding: 5px; gap: 4px; }
+.seg-item {
+  display: inline-flex; align-items: center; gap: 7px; border: none; cursor: pointer;
+  background: transparent; color: var(--ink-soft); font-weight: 700; font-size: 15px;
+  padding: 9px 16px; border-radius: 11px; font-family: inherit; transition: all .2s;
+}
+.seg-item.active { background: #fff; color: var(--pink-deep); box-shadow: var(--shadow-soft); }
+
+/* перемикач агентів */
+.helper-toggle {
+  display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line);
+  background: #fff; color: var(--ink-soft); cursor: pointer; font-family: inherit;
+  font-size: 14px; font-weight: 700; padding: 8px 13px; border-radius: 12px; transition: all .2s;
+}
+.helper-toggle b { color: var(--ink-soft); font-weight: 800; }
+.helper-toggle .ht-dot { width: 9px; height: 9px; border-radius: 50%; background: #cbb6cb; }
+.helper-toggle.on { border-color: transparent; background: linear-gradient(135deg,#efe2ff,#ffe7f2); color: var(--violet); }
+.helper-toggle.on b { color: var(--pink-deep); }
+.helper-toggle.on .ht-dot { background: #57c97e; box-shadow: 0 0 0 0 rgba(87,201,126,.6); animation: pulse 1.6s infinite; }
+
+/* питання від помічниці */
+.agent-questions { margin: 10px 0 0; padding-left: 20px; color: var(--ink-soft); line-height: 1.6; }
+.agent-questions li { margin-bottom: 4px; }
+
+/* нотатка-перевірка картинок */
+.review-note {
+  margin-top: 14px; background: #f3eeff; border: 1px solid #e6dcff; border-radius: 14px;
+  padding: 12px 15px; font-size: 15px; line-height: 1.5; color: var(--ink); animation: rise .3s both;
+}
+.review-note.busy { background: #f7f2ff; color: var(--ink-soft); }
+.review-issues { margin: 8px 0 4px; padding-left: 20px; }
+.review-issues li { margin-bottom: 5px; }
+.review-note .mini-btn { margin-top: 10px; background: var(--accent-grad); color: #fff; border: none; font-weight: 700; padding: 9px 14px; }
+
+/* ---------- Чат ---------- */
+.chat { flex: 1; overflow-y: auto; padding: 28px clamp(16px, 6vw, 90px); scroll-behavior: smooth; }
+.msg { display: flex; gap: 14px; max-width: 920px; margin: 0 auto 26px; animation: rise .45s cubic-bezier(.2,.7,.3,1) both; }
+.msg.user { flex-direction: row-reverse; }
+.avatar {
+  width: 44px; height: 44px; border-radius: 14px; flex-shrink: 0; display: grid; place-items: center;
+  font-size: 22px; background: var(--accent-grad); box-shadow: var(--shadow-soft);
+}
+.msg.user .avatar { background: linear-gradient(135deg,#ffd1e1,#ffe9c7); }
+.bubble {
+  background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+  padding: 16px 20px; box-shadow: var(--shadow-soft); line-height: 1.55; max-width: 100%;
+}
+.msg.user .bubble { background: #fff4f9; border-color: #ffe0ef; }
+.bubble p { margin: 0 0 8px; }
+.bubble p:last-child { margin-bottom: 0; }
+.bubble .big { font-size: 20px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.chip {
+  border: 1px solid var(--line); background: #fff; cursor: pointer; font-family: inherit;
+  padding: 10px 15px; border-radius: 999px; font-size: 15px; color: var(--ink);
+  transition: transform .15s, border-color .15s, background .15s;
+}
+.chip:hover { transform: translateY(-2px); border-color: var(--pink); background: #fff4f9; }
+
+/* ---------- Сітка зображень ---------- */
+.gallery { display: grid; gap: 14px; margin-top: 4px; }
+.gallery.n1 { grid-template-columns: minmax(0,420px); }
+.gallery.n2 { grid-template-columns: repeat(2, 1fr); }
+.gallery.n3, .gallery.n4 { grid-template-columns: repeat(2, 1fr); }
+.gallery.n6 { grid-template-columns: repeat(3, 1fr); }
+.tile {
+  position: relative; border-radius: 16px; overflow: hidden; background: #f3eaf3;
+  aspect-ratio: var(--ar, 1); cursor: pointer; box-shadow: var(--shadow-soft);
+  animation: rise .5s both;
+}
+.tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .4s; }
+.tile:hover img { transform: scale(1.05); }
+.tile .tile-bar {
+  position: absolute; inset-inline: 0; bottom: 0; display: flex; gap: 8px; justify-content: center;
+  padding: 12px; background: linear-gradient(transparent, rgba(0,0,0,.5)); opacity: 0; transition: opacity .25s;
+}
+.tile:hover .tile-bar { opacity: 1; }
+.tile-act {
+  border: none; background: rgba(255,255,255,.92); cursor: pointer; border-radius: 10px;
+  padding: 8px 10px; font-size: 14px; font-weight: 700; font-family: inherit; color: var(--ink);
+}
+.tile-act:hover { background: #fff; }
+
+/* плейсхолдер під час малювання */
+.tile.loading { display: grid; place-items: center; }
+.tile.loading::after {
+  content: ""; width: 42px; height: 42px; border-radius: 50%;
+  border: 4px solid #e9d6e6; border-top-color: var(--pink-deep); animation: spin 1s linear infinite;
+}
+.shimmer { position: absolute; inset: 0; background: linear-gradient(110deg, #f3eaf3 30%, #fbeef6 50%, #f3eaf3 70%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+
+/* друкарка «думаю» */
+.typing { display: inline-flex; gap: 5px; align-items: center; }
+.typing span { width: 9px; height: 9px; border-radius: 50%; background: var(--violet); animation: blink 1.2s infinite; }
+.typing span:nth-child(2){ animation-delay:.2s } .typing span:nth-child(3){ animation-delay:.4s }
+@keyframes blink { 0%,80%,100%{ transform: scale(.6); opacity:.4 } 40%{ transform: scale(1); opacity:1 } }
+
+/* ---------- Поле вводу ---------- */
+.composer { border-top: 1px solid var(--line); background: rgba(255,255,255,.7); backdrop-filter: blur(10px); padding: 14px clamp(16px,6vw,90px) 18px; }
+.options, .edit-tools { max-width: 920px; margin: 0 auto 12px; background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; box-shadow: var(--shadow-soft); animation: rise .3s both; }
+.opt { margin-bottom: 14px; }
+.opt:last-child { margin-bottom: 0; }
+.opt > label { display: block; font-weight: 700; font-size: 15px; margin-bottom: 8px; color: var(--ink-soft); }
+.count-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.count-pills button {
+  border: 1px solid var(--line); background: #fff; cursor: pointer; font-family: inherit;
+  padding: 9px 16px; border-radius: 12px; font-weight: 700; font-size: 15px; color: var(--ink); transition: all .15s;
+}
+.count-pills button.active { background: var(--accent-grad); color: #fff; border-color: transparent; }
+#negativeInput { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 11px 14px; font-size: 16px; font-family: inherit; }
+#negativeInput:focus { outline: 2px solid var(--pink); }
+
+/* стилі-пресети (надихнуто ComfyUI) */
+.style-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.style-chip {
+  border: 1px solid var(--line); background: #fff; cursor: pointer; font-family: inherit;
+  padding: 9px 14px; border-radius: 12px; font-weight: 700; font-size: 14px; color: var(--ink);
+  white-space: nowrap; flex-shrink: 0; transition: all .15s;
+}
+.style-chip:hover { border-color: var(--pink); background: #fff4f9; }
+.style-chip.active { background: var(--accent-grad); color: #fff; border-color: transparent; }
+.opt input[type=range] { width: 100%; accent-color: var(--pink-deep); }
+.opt label small { color: var(--pink-deep); font-weight: 700; }
+
+/* прикріплене фото */
+.attach-chip {
+  max-width: 920px; margin: 0 auto 10px; display: flex; align-items: center; gap: 12px;
+  background: #fff4f9; border: 1px solid #ffe0ef; border-radius: 16px; padding: 10px 12px;
+  font-size: 15px; color: var(--ink-soft); animation: rise .3s both;
+}
+.attach-chip img { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; flex-shrink: 0; }
+.attach-chip span { flex: 1; }
+.attach-chip button { border: none; background: #ffd1e1; color: var(--pink-deep); width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 15px; flex-shrink: 0; }
+
+.edit-hint { font-size: 15px; color: var(--ink-soft); margin-bottom: 12px; line-height: 1.5; }
+.brush-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 14px; color: var(--ink-soft); }
+.brush-row input[type=range] { flex: 1; min-width: 120px; accent-color: var(--pink-deep); }
+.mini-btn { border: 1px solid var(--line); background: #fff; cursor: pointer; padding: 7px 12px; border-radius: 10px; font-family: inherit; font-size: 14px; }
+.mini-btn:hover { background: #f7eef6; }
+
+.input-row {
+  max-width: 920px; margin: 0 auto; display: flex; align-items: flex-end; gap: 10px;
+  background: #fff; border: 2px solid var(--line); border-radius: 22px; padding: 8px 10px;
+  box-shadow: var(--shadow-soft); transition: border-color .2s;
+}
+.input-row:focus-within { border-color: var(--pink); }
+#promptInput {
+  flex: 1; border: none; resize: none; font-size: 18px; font-family: inherit; color: var(--ink);
+  padding: 12px 8px; max-height: 160px; background: transparent; line-height: 1.4;
+}
+#promptInput:focus { outline: none; }
+.round-btn { width: 46px; height: 46px; border-radius: 14px; border: none; background: #f3eaf3; color: var(--ink-soft); cursor: pointer; display: grid; place-items: center; flex-shrink: 0; transition: background .15s, color .15s; }
+.round-btn:hover { background: #ecdcec; color: var(--pink-deep); }
+.round-btn.mic.rec { background: #ffe0e0; color: #e0506a; animation: pulse 1.2s infinite; }
+.send-btn {
+  width: 54px; height: 54px; border-radius: 16px; border: none; cursor: pointer; flex-shrink: 0;
+  background: var(--accent-grad); color: #fff; display: grid; place-items: center;
+  box-shadow: var(--shadow-soft); transition: transform .15s, box-shadow .2s;
+}
+.send-btn:hover { transform: translateY(-2px) rotate(-6deg); box-shadow: var(--shadow); }
+.send-btn:disabled { opacity: .5; cursor: default; transform: none; }
+.composer-foot { max-width: 920px; margin: 9px auto 0; font-size: 13px; color: var(--ink-soft); text-align: center; }
+
+/* полотно для обведення */
+.edit-stage { position: relative; max-width: 620px; margin: 0 auto; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-soft); }
+.edit-stage img, .edit-stage canvas { display: block; width: 100%; }
+.edit-stage canvas { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+
+/* ---------- Лайтбокс ---------- */
+.lightbox { position: fixed; inset: 0; z-index: 60; background: rgba(40,30,45,.82); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 30px; animation: fade .25s both; }
+.lightbox img { max-width: 90vw; max-height: 76vh; border-radius: 16px; box-shadow: 0 30px 80px rgba(0,0,0,.4); }
+.lb-actions { position: absolute; bottom: 28px; display: flex; gap: 12px; }
+.lb-btn { border: none; background: #fff; cursor: pointer; padding: 13px 20px; border-radius: 14px; font-weight: 800; font-size: 16px; font-family: inherit; color: var(--ink); box-shadow: var(--shadow); transition: transform .15s; }
+.lb-btn:hover { transform: translateY(-2px); }
+.lb-close { position: absolute; top: 22px; right: 26px; width: 46px; height: 46px; border-radius: 50%; border: none; background: rgba(255,255,255,.9); font-size: 20px; cursor: pointer; color: var(--ink); }
+.lb-close.dark { top: 16px; right: 16px; }
+
+/* ---------- Модальне вікно ---------- */
+.modal { position: fixed; inset: 0; z-index: 70; background: rgba(40,30,45,.55); backdrop-filter: blur(5px); display: grid; place-items: center; padding: 24px; animation: fade .25s both; }
+/* The author `display: grid/grid` above overrides the UA `[hidden]{display:none}`
+   rule, so setting `.hidden = true` in JS never actually closed these overlays.
+   A global belt-and-suspenders rule: anything with the `hidden` attribute is
+   hidden, period — fixes the options panel, modals, lightbox and any future one. */
+[hidden] { display: none !important; }
+.modal[hidden], .lightbox[hidden] { display: none !important; }
+/* Options panel header + close button */
+.opt-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.opt-head span { font-weight: 800; font-size: 16px; color: var(--ink); }
+.opt-close { border: none; background: #f1e9f3; color: var(--ink); width: 34px; height: 34px; border-radius: 50%; font-size: 16px; cursor: pointer; line-height: 1; transition: background .15s, transform .15s; }
+.opt-close:hover { background: #e7d9ec; transform: scale(1.05); }
+.modal-card { position: relative; background: #fff; border-radius: 24px; padding: 34px 30px; max-width: 480px; width: 100%; box-shadow: var(--shadow); animation: rise .35s both; }
+.modal-card h2 { margin: 0 0 18px; font-size: 24px; }
+.help-steps { padding-left: 22px; line-height: 1.7; font-size: 17px; }
+.help-steps li { margin-bottom: 10px; }
+.help-note { background: #fff4f9; border-radius: 12px; padding: 13px 15px; font-size: 15px; color: var(--ink-soft); margin: 16px 0; }
+
+/* ---------- Налаштування агентів ---------- */
+.as-intro { font-size: 15px; color: var(--ink-soft); line-height: 1.55; margin: 0 0 16px; }
+.as-link { color: var(--pink-deep); font-weight: 700; }
+.as-label { display: block; font-weight: 700; font-size: 14px; color: var(--ink-soft); margin: 12px 0 6px; }
+.as-input { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 16px; font-family: inherit; }
+.as-input:focus { outline: 2px solid var(--pink); }
+.as-status { min-height: 20px; margin: 12px 0 4px; font-size: 14px; font-weight: 700; color: var(--ink-soft); }
+.as-status.ok { color: #3fae6b; }
+.as-status.warn { color: #d9892b; }
+.as-status.err { color: #e0506a; }
+.as-actions { display: flex; gap: 10px; margin-top: 14px; }
+.as-actions .ghost-btn { flex: 0 0 auto; padding: 14px 18px; }
+.as-actions .big-btn { flex: 1; }
+.as-note { font-size: 13px; color: var(--ink-soft); text-align: center; margin: 14px 0 0; }
+.as-skip { width: 100%; margin-top: 12px; background: #f3eaf3; color: var(--ink); }
+.as-skip:hover { background: #ecdcec; }
+
+/* ---------- Сповіщення ---------- */
+.toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 13px 22px; border-radius: 14px; font-weight: 700; z-index: 90; box-shadow: var(--shadow); animation: rise .3s both; max-width: 90vw; text-align: center; }
+
+/* ---------- Анімації ---------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { 0% { transform: scale(.5) rotate(-15deg); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+
+/* ---------- Адаптив ---------- */
+@media (max-width: 860px) {
+  body { font-size: 17px; }
+  .sidebar { position: fixed; transform: translateX(-104%); box-shadow: var(--shadow); }
+  .sidebar.open { transform: none; }
+  .only-mobile { display: inline-grid; }
+  .seg-item span, .seg-item { font-size: 14px; padding: 8px 11px; }
+  .gallery.n6 { grid-template-columns: repeat(2,1fr); }
+  .chat { padding: 20px 14px; }
+  .composer { padding: 12px 14px 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+
+/* ============================================================
+   ✨ Покращена графіка (полірування візуалу)
+   ============================================================ */
+
+/* Глибший фон: додаткова пляма, віньєтка та тонка сітка крапок */
+.aurora .b1 { background: radial-gradient(circle at 30% 30%, #ffd0e6, #ffb3d4); }
+.aurora .b2 { background: radial-gradient(circle at 60% 40%, #d8c9ff, #c0a9ff); }
+.aurora .b3 { background: radial-gradient(circle at 50% 50%, #cdeeff, #aee0ff); }
+.aurora::before {
+  content: ""; position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(167,139,250,.12) 1px, transparent 1px);
+  background-size: 26px 26px; mask-image: radial-gradient(circle at 50% 40%, #000, transparent 75%);
+  opacity: .5;
+}
+.aurora::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(120% 80% at 50% -10%, transparent 40%, rgba(120,90,140,.08));
+}
+
+/* Анімований градієнтний заголовок */
+.brand-text h1 {
+  background: linear-gradient(90deg, #f06aa0, #a78bfa, #7dd3fc, #f06aa0);
+  background-size: 280% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shine 9s linear infinite;
+}
+@keyframes shine { to { background-position: 280% 0; } }
+
+/* Аватари з мʼяким кільцем */
+.avatar { box-shadow: 0 6px 18px rgba(167,139,250,.35), inset 0 0 0 2px rgba(255,255,255,.6); }
+
+/* Бульбашки трохи «скляні» */
+.bubble { background: rgba(255,255,255,.82); backdrop-filter: blur(6px); }
+/* Повідомлення агента — легкий фіолетовий акцент зліва */
+.msg.assistant .bubble { border-left: 3px solid transparent; border-image: linear-gradient(180deg,#a78bfa,#7dd3fc) 1; }
+
+/* Плитки: градієнтна рамка та глибша тінь на наведення */
+.tile { box-shadow: 0 8px 24px rgba(120,90,140,.16); transition: transform .25s, box-shadow .25s; }
+.tile:hover { transform: translateY(-4px); box-shadow: 0 18px 40px rgba(120,90,140,.28); }
+.tile::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  padding: 2px; background: linear-gradient(135deg, #ff9ec6, #a78bfa, #7dd3fc);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude; opacity: 0; transition: opacity .25s;
+}
+.tile:hover::after { opacity: 1; }
+
+/* Кнопка «надіслати» з мʼяким сяйвом */
+.send-btn { box-shadow: 0 8px 22px rgba(240,106,160,.4); }
+.send-btn:hover { box-shadow: 0 12px 30px rgba(167,139,250,.5); }
+
+/* Поле вводу — трохи піднімемо й додамо глибини */
+.input-row { box-shadow: 0 10px 30px rgba(120,90,140,.14); }
+
+/* Сегменти/перемикач — мʼякша глибина */
+.seg, .status-card { box-shadow: 0 6px 18px rgba(120,90,140,.10); }
+
+/* Чіпи-ідеї — приємний градієнт на наведення */
+.chip:hover { background: linear-gradient(135deg,#fff4f9,#f3eeff); box-shadow: 0 6px 16px rgba(167,139,250,.18); }
+
+/* Делікатна поява галереї «хвилею» */
+.gallery .tile:nth-child(2) { animation-delay: .06s; }
+.gallery .tile:nth-child(3) { animation-delay: .12s; }
+.gallery .tile:nth-child(4) { animation-delay: .18s; }
+.gallery .tile:nth-child(5) { animation-delay: .24s; }
+.gallery .tile:nth-child(6) { animation-delay: .30s; }
+
+
+/* ============================================================
+   v4 — "Ideogram-style" clean light theme (override layer)
+   Appended last so it wins the cascade. Appearance only —
+   no markup/JS changes, so all controls keep working.
+   ============================================================ */
+:root {
+  --bg: #ffffff;
+  --bg-2: #ffffff;
+  --ink: #18181b;
+  --ink-soft: #6b7280;
+  --card: #ffffff;
+  --line: #ececf0;
+  --accent: #7c5cff;
+  --pink: #7c5cff;
+  --pink-deep: #6b46ff;
+  --violet: #7c5cff;
+  --accent-grad: linear-gradient(135deg, #7c5cff 0%, #9d7bff 100%);
+  --shadow: 0 10px 30px rgba(20, 20, 40, 0.08);
+  --shadow-soft: 0 4px 16px rgba(20, 20, 40, 0.05);
+}
+
+body { background: #ffffff; font-size: 17px; }
+
+/* Clean white backdrop — drop the warm aurora blobs */
+.aurora, .blob { display: none !important; }
+
+/* ---- Sidebar: light, bordered, minimal (like Ideogram's nav) ---- */
+.sidebar { background: #fafafa; border-right: 1px solid var(--line); box-shadow: none; }
+.brand-text { color: var(--ink); }
+.history-item { border-radius: 10px; }
+.history-item:hover { background: #f1f0f5; }
+
+/* primary "new chat" button -> solid accent */
+.big-btn { background: var(--accent) !important; color: #fff !important; border: none !important; box-shadow: none !important; }
+.big-btn:hover { filter: brightness(1.05); }
+.ghost-btn { border: 1px solid var(--line); background: #fff; border-radius: 12px; }
+
+/* ---- Elegant serif greeting headline (Ideogram's "What will you create?") ---- */
+.hello, #topHello {
+  font-family: Georgia, "Times New Roman", serif !important;
+  font-weight: 500; font-size: clamp(26px, 4vw, 40px); letter-spacing: .2px; color: var(--ink);
+}
+
+/* ---- Mode tabs -> clean pill with purple active outline ---- */
+.seg-item { border-radius: 12px; }
+.seg-item.active { background: #fff !important; color: var(--accent) !important; border: 1.5px solid var(--accent) !important; box-shadow: none !important; }
+
+/* ---- Composer -> Ideogram rounded pill with a dark circular submit ---- */
+.composer { background: #fff !important; border: 1px solid var(--line) !important; border-radius: 28px !important; box-shadow: var(--shadow) !important; }
+#promptInput { background: transparent !important; font-size: 17px; }
+.round-btn { color: var(--ink-soft) !important; background: transparent !important; }
+.round-btn:hover { background: #f1f0f5 !important; }
+.send-btn {
+  background: #111 !important; color: #fff !important; border: none !important;
+  width: 46px; height: 46px; border-radius: 50% !important; box-shadow: none !important;
+}
+.send-btn:hover { background: #000 !important; }
+
+/* ---- Options panel + style chips -> Ideogram category-pill look ---- */
+.options, .edit-tools { border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); }
+.style-chip, .count-pills button, #ratioPills button {
+  border: 1px solid var(--line) !important; background: #fff !important; border-radius: 14px !important;
+  color: var(--ink) !important; box-shadow: none !important;
+}
+.style-chip.active, .count-pills button.active, #ratioPills button.active {
+  border-color: var(--accent) !important; color: var(--accent) !important; background: #f6f3ff !important;
+}
+
+/* ---- Image grid: clean cards with subtle shadow ---- */
+.tile { border-radius: 14px; box-shadow: var(--shadow-soft); border: 1px solid var(--line); }
+
+/* range slider accent */
+input[type="range"] { accent-color: var(--accent); }
+
+
+/* ============================================================
+   v5 — exact Ideogram home layout (centered headline → prompt
+   → category row → results grid; Ideogram sidebar nav).
+   ============================================================ */
+body.ig { font-family: "Inter", system-ui, sans-serif; }
+.ig .aurora, .ig .blob { display: none !important; }
+
+/* ---- layout shell ---- */
+.ig .main { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.ig .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 22px; border-bottom: 1px solid var(--line); flex: 0 0 auto; background: #fff; }
+.ig .topbar-spacer { flex: 1; }
+.ig .hello { color: var(--ink-soft); font-size: 15px; font-family: "Inter", sans-serif !important; }
+.ig #topHello { font-family: "Inter", sans-serif !important; font-size: 15px !important; font-weight: 400 !important; color: var(--ink-soft) !important; }
+
+/* ---- centered stage ---- */
+.ig .stage { flex: 1 1 auto; overflow-y: auto; padding: 44px 24px 90px; display: flex; flex-direction: column; align-items: center; }
+.ig .hero { font-family: "Fraunces", Georgia, serif; font-weight: 400; font-size: clamp(30px, 4.2vw, 52px); color: var(--ink); text-align: center; margin: 14px 0 26px; letter-spacing: .2px; }
+
+/* ---- prompt pill ---- */
+.ig .composer { position: relative !important; max-width: 720px; width: 100%; margin: 0 auto; padding: 6px 8px; border: 1px solid var(--line) !important; border-radius: 30px !important; box-shadow: 0 6px 24px rgba(20,20,40,.07) !important; background: #fff !important; }
+.ig .composer .input-row { display: flex; align-items: center; gap: 4px; }
+.ig #promptInput { flex: 1; border: none; outline: none; resize: none; font-size: 16px; padding: 11px 10px; max-height: 120px; background: transparent !important; }
+.ig .composer-foot { display: none; }
+.ig .round-btn { width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto; }
+.ig .send-btn { background: #111 !important; color: #fff !important; width: 42px; height: 42px; border-radius: 50% !important; flex: 0 0 auto; }
+.ig .send-btn:hover { background: #000 !important; }
+
+/* options popover floats below the pill */
+.ig .options { position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 30; max-height: 56vh; overflow-y: auto; }
+.ig .edit-tools, .ig .attach-chip { position: relative; margin: 0 6px 6px; }
+
+/* ---- category row ---- */
+.ig .cat-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 820px; margin: 20px auto 4px; }
+.ig .cat-row .style-chip { border: 1px solid var(--line) !important; border-radius: 14px !important; padding: 9px 16px !important; background: #fff !important; font-size: 14px; cursor: pointer; color: var(--ink) !important; }
+.ig .cat-row .style-chip.active { border-color: var(--accent) !important; color: var(--accent) !important; background: #f6f3ff !important; }
+
+/* ---- results / examples ---- */
+.ig .chat { width: 100%; max-width: 920px; margin: 26px auto 0; overflow: visible; display: block; }
+.ig .intro .bubble { text-align: center; border: none !important; background: transparent !important; box-shadow: none !important; }
+.ig .intro .avatar { display: none; }
+.ig .chips { justify-content: center; }
+
+/* ---- Ideogram sidebar nav ---- */
+.ig .sidebar { width: 248px; background: #fafafa; border-right: 1px solid var(--line); padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; box-shadow: none; }
+.ig .ig-brand { display: flex; align-items: center; gap: 8px; font-size: 19px; font-weight: 700; padding: 4px 8px 12px; color: var(--ink); }
+.ig .ig-logo { font-size: 22px; }
+.ig .ig-new { width: 100%; justify-content: center; margin-bottom: 10px; }
+.ig .ig-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+.ig .ig-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; border: none; background: transparent; color: var(--ink); font-size: 15px; cursor: pointer; text-align: left; width: 100%; font-family: inherit; }
+.ig .ig-item:hover { background: #f1f0f5; }
+.ig .ig-item.active { background: #ececf0; font-weight: 600; }
+.ig .ig-ico { width: 20px; text-align: center; }
+.ig .ig-section { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); margin: 14px 10px 4px; }
+.ig .history { background: transparent; box-shadow: none; border: none; padding: 0; }
+.ig .history-title { display: none; }
+.ig .status-card { margin-top: 8px; }
+
+/* hide the old mode tabs' icons on small; keep tabs compact */
+.ig .seg { display: inline-flex; gap: 4px; }
+.ig .seg-item { padding: 7px 14px; font-size: 14px; }
+
+
+/* ============================================================
+   v6 — exact Ideogram look: card prompt bar with inner toolbar,
+   solid settings dropdown (no overlap), clean emoji-free nav.
+   ============================================================ */
+.ig .hero { font-family: "Fraunces", Georgia, serif !important; font-weight: 400; font-size: clamp(30px, 4vw, 50px); margin: 8px 0 24px; }
+
+/* ---- prompt card ---- */
+.ig .composer { position: relative !important; max-width: 720px; width: 100%; margin: 0 auto;
+  padding: 14px 16px 12px !important; border: 1px solid var(--line) !important; border-radius: 16px !important;
+  background: #fff !important; box-shadow: 0 6px 24px rgba(20,20,40,.06) !important; }
+.ig #promptInput { display: block; width: 100%; border: none; outline: none; resize: none;
+  font-size: 16px; line-height: 1.5; padding: 2px 2px 10px; min-height: 30px; max-height: 160px; background: transparent !important; color: var(--ink); }
+.ig #promptInput::placeholder { color: #9aa0aa; }
+.ig .composer-foot { display: none !important; }
+
+.ig .bar-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ig .bar-left, .ig .bar-right { display: flex; align-items: center; gap: 8px; }
+.ig .tool-btn { width: 36px; height: 36px; border-radius: 50%; border: none; background: transparent;
+  color: var(--ink-soft); cursor: pointer; display: grid; place-items: center; }
+.ig .tool-btn:hover { background: #f1f0f5; }
+.ig .tool-chip { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 13px;
+  border: 1px solid var(--line); border-radius: 18px; background: #fff; color: var(--ink); cursor: pointer; font-size: 14px; }
+.ig .tool-chip:hover { background: #f7f6fa; }
+.ig .send-btn { width: 40px; height: 40px; border-radius: 50% !important; background: #111 !important; color: #fff !important; border: none !important; flex: 0 0 auto; }
+.ig .send-btn:hover { background: #000 !important; }
+
+/* ---- settings dropdown: solid, on top, opens below the card ---- */
+.ig .options { position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 200;
+  background: #fff !important; border: 1px solid var(--line) !important; border-radius: 16px !important;
+  box-shadow: 0 20px 50px rgba(20,20,40,.18) !important; max-height: 60vh; overflow: auto; padding: 16px 18px; }
+.ig .cat-row, .ig .chat { position: relative; z-index: 1; }
+
+/* ---- category row ---- */
+.ig .cat-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 820px; margin: 22px auto 6px; }
+.ig .cat-row .style-chip { border: 1px solid var(--line) !important; border-radius: 14px !important; padding: 9px 18px !important;
+  background: #fff !important; font-size: 14px; cursor: pointer; color: var(--ink) !important; box-shadow: none !important; }
+.ig .cat-row .style-chip.active { border-color: var(--accent) !important; color: var(--accent) !important; background: #f6f3ff !important; }
+
+/* ---- results / examples ---- */
+.ig .chat { width: 100%; max-width: 920px; margin: 28px auto 0; }
+.ig .intro .bubble { text-align: center; border: none !important; background: transparent !important; box-shadow: none !important; padding: 0; }
+.ig .chips { justify-content: center; gap: 10px; }
+.ig .chip { border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 9px 16px; color: var(--ink-soft); }
+.ig .chip:hover { background: #f7f6fa; color: var(--ink); }
+
+/* ---- sidebar ---- */
+.ig .ig-brand { font-family: "Fraunces", Georgia, serif; font-size: 22px; font-weight: 600; padding: 6px 8px 12px; color: var(--ink); }
+.ig .ig-account { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; cursor: pointer; }
+.ig .ig-account:hover { background: #f1f0f5; }
+.ig .ig-acc-badge { width: 22px; height: 22px; border-radius: 6px; background: #ff6a3d; color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; }
+.ig .ig-acc-name { font-size: 14px; font-weight: 600; flex: 1; }
+.ig .ig-acc-caret { color: var(--ink-soft); }
+.ig .ig-new { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 42px;
+  background: var(--accent) !important; color: #fff !important; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; margin-bottom: 12px; font-family: inherit; }
+.ig .ig-new:hover { filter: brightness(1.06); }
+.ig .ig-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+.ig .ig-item { display: flex; align-items: center; gap: 11px; padding: 9px 11px; border-radius: 10px; border: none;
+  background: transparent; color: var(--ink); font-size: 15px; cursor: pointer; text-align: left; width: 100%; font-family: inherit; }
+.ig .ig-item svg { color: var(--ink-soft); flex: 0 0 auto; }
+.ig .ig-item:hover { background: #f1f0f5; }
+.ig .ig-item.active { background: #ececf0; font-weight: 600; }
+.ig .ig-section { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); margin: 16px 11px 4px; }
+.ig .history { background: transparent; box-shadow: none; border: none; padding: 0; }
+.ig .history-title { display: none; }
+
+/* topbar tabs */
+.ig .seg-item.active { background: #fff !important; color: var(--accent) !important; border: 1.5px solid var(--accent) !important; }
+.ig .helper-toggle { border: 1px solid var(--line); background: #fff; border-radius: 18px; }
+
+
+/* ============================================================
+   v6 — exact Ideogram prompt box (inline controls, no popover
+   overlap), clean icons, no emoji.
+   ============================================================ */
+
+/* prompt box = rounded rectangle, controls INSIDE (Ideogram style) */
+.ig .composer {
+  position: relative !important; z-index: 50;
+  max-width: 720px; width: 100%; margin: 0 auto;
+  padding: 14px 16px 12px !important;
+  border: 1px solid var(--line) !important; border-radius: 24px !important;
+  box-shadow: 0 8px 30px rgba(20,20,40,.08) !important; background: #fff !important;
+}
+.ig #promptInput {
+  display: block; width: 100%; border: none !important; outline: none; resize: none;
+  font-size: 16px; line-height: 1.5; padding: 4px 2px 2px !important; max-height: 160px;
+  background: transparent !important; color: var(--ink); font-family: "Inter", sans-serif;
+}
+.ig #promptInput::placeholder { color: #9aa0a6; }
+
+/* bottom control bar inside the box */
+.ig .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.ig .cb-left, .ig .cb-right { display: flex; align-items: center; gap: 8px; }
+
+/* segmented pill groups (count, ratio) */
+.ig .cb-group { display: inline-flex; background: #f3f3f6; border-radius: 12px; padding: 2px; gap: 2px; }
+.ig .cb-group button {
+  border: none; background: transparent; cursor: pointer; font-family: "Inter", sans-serif;
+  font-size: 13px; color: var(--ink-soft); padding: 6px 10px; border-radius: 10px; line-height: 1;
+}
+.ig .cb-group button.active { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); font-weight: 600; }
+
+.ig .cb-pill { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: none; background: #f3f3f6; color: var(--ink-soft); border-radius: 10px; cursor: pointer; }
+.ig .cb-pill:hover { background: #e9e9ee; }
+
+.ig .cb-right .round-btn { width: 36px; height: 36px; border-radius: 50%; background: transparent !important; color: var(--ink-soft) !important; display: inline-flex; align-items: center; justify-content: center; }
+.ig .cb-right .round-btn:hover { background: #f3f3f6 !important; }
+.ig .send-btn { width: 38px; height: 38px; border-radius: 50% !important; background: #111 !important; color: #fff !important; display: inline-flex; align-items: center; justify-content: center; }
+.ig .send-btn:hover { background: #000 !important; }
+
+/* advanced dropdown — solid, high z-index so nothing shows through */
+.ig .options {
+  position: absolute; top: calc(100% + 8px); right: 0; left: auto; width: 320px; z-index: 200;
+  background: #fff !important; border: 1px solid var(--line) !important; border-radius: 16px !important;
+  box-shadow: 0 16px 40px rgba(20,20,40,.16) !important; padding: 14px 16px !important;
+}
+
+/* keep the prompt box (and its dropdown) above the category row + results */
+.ig .cat-row, .ig .chat { position: relative; z-index: 1; }
+
+/* category row pills — clean text, no emoji */
+.ig .cat-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 760px; margin: 22px auto 4px; }
+.ig .cat-row .style-chip { border: 1px solid var(--line) !important; border-radius: 12px !important; padding: 8px 16px !important; background: #fff !important; font-size: 14px; cursor: pointer; color: var(--ink) !important; box-shadow: none !important; }
+.ig .cat-row .style-chip:hover { background: #f7f7f9 !important; }
+.ig .cat-row .style-chip.active { border-color: var(--accent) !important; color: var(--accent) !important; background: #f6f3ff !important; }
+
+/* examples / hint */
+.ig .intro-hint { color: var(--ink-soft); text-align: center; margin: 8px 0 14px; font-size: 14px; }
+.ig .chip { border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 8px 14px; font-size: 14px; color: var(--ink); cursor: pointer; }
+.ig .chip:hover { background: #f7f7f9; }
+
+/* hero headline tightened to match Ideogram */
+.ig .hero { font-family: "Fraunces", Georgia, serif; font-weight: 400; font-size: clamp(34px, 4vw, 50px); margin: 26px 0 28px; }
+
+/* brand mark */
+.ig .ig-mark { color: var(--ink); }
+.ig .ig-brandname { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+
+/* status card subtle */
+.ig .status-card { font-size: 12px; color: var(--ink-soft); }
