@@ -1022,7 +1022,7 @@ class IdeogramEngine:
         if self.mock:
             images = [self._mock_img2img(base, prompt, strength, s) for s in seeds]
         else:
-            images = self._img2img_real(base, prompt, strength, seeds, steps, guidance)
+            images = self._img2img_sdedit(base, prompt, strength, seeds, steps, guidance)
 
         return GenResult(
             images_b64=[_pil_to_b64(im) for im in images],
@@ -1033,30 +1033,310 @@ class IdeogramEngine:
             height=base.height,
         )
 
-    def _img2img_real(self, base, prompt, strength, seeds, steps, guidance):
+    def _img2img_sdedit(self, base, prompt, strength, seeds, steps, guidance):
+        """Flow-matching img2img (SDEdit) that REUSES the pipeline's own __call__
+        (which already fits 1024^2 on 2x T4 for text2img), so img2img inherits
+        that proven memory profile instead of a hand-rolled denoise that OOMs the
+        cramped cuda:0.
+
+        Approach (the "find a way to push to 1024" fix):
+          * VAE-encode the init image on **cuda:1** (which has free VRAM), adding
+            ZERO pressure to cuda:0 (where the text encoder + uncond DiT live).
+          * Pack + batch-norm-normalise into the model's packed latent layout.
+          * Inject the strength-noised init latents by monkeypatching
+            ``prepare_latents``; run only the schedule tail by truncating
+            ``set_timesteps`` (Flux ``get_timesteps``/``scale_noise`` recipe).
+          * Call the pipeline normally -> its tested encoder-offload + parallel
+            dual-GPU denoise + VAE decode all run unchanged.
+        """
+        import types
         torch = self._torch
         prompt = self._expand_prompt(prompt)
+        P = self._pipe
+        from diffusers.pipelines.ideogram4 import pipeline_ideogram4 as _p
+        try:
+            from accelerate.hooks import remove_hook_from_module as _rm
+        except Exception:  # noqa: BLE001
+            _rm = None
+
+        def _free():
+            try:
+                f0, _ = torch.cuda.mem_get_info(0)
+                f1, _ = torch.cuda.mem_get_info(1)
+                return f"cuda0={f0/1e9:.2f} cuda1={f1/1e9:.2f}GB"
+            except Exception:  # noqa: BLE001
+                return "?"
+
+        patch = P.patch_size
+        vsf = P.vae_scale_factor
+        i2i_max = int(os.environ.get("IMG2IMG_MAX_SIDE", "1024"))
+        if max(base.width, base.height) > i2i_max:
+            r = i2i_max / max(base.width, base.height)
+            base = base.resize((max(256, (int(base.width * r) // 16) * 16),
+                                max(256, (int(base.height * r) // 16) * 16)), Image.LANCZOS)
+        W, H = base.width, base.height
+        grid_h, grid_w = H // (vsf * patch), W // (vsf * patch)
+        num_image_tokens = grid_h * grid_w
+        steps = max(2, int(steps))
+        strength = max(0.05, min(float(strength), 0.95))
+
         images: list[Image.Image] = []
         with self._lock:
-            if self._img2img_pipe is None:
+            print(f"[engine] img2img(sdedit) ENTER {W}x{H} {_free()}", flush=True)
+            try:
+                torch.cuda.empty_cache()
+            except Exception:  # noqa: BLE001
+                pass
+            vae = P.vae
+            home = next(vae.parameters()).device
+            enc_dev = torch.device("cuda:1") if torch.cuda.device_count() > 1 else home
+            # ---- VAE-encode the init image on the GPU with free VRAM (cuda:1) ----
+            try:
+                if _rm is not None:
+                    try:
+                        _rm(vae, recurse=True)
+                    except Exception:  # noqa: BLE001
+                        pass
+                vae.to(enc_dev)
+                _pt = getattr(vae, "use_tiling", False)
                 try:
-                    from diffusers import AutoPipelineForImage2Image
+                    vae.use_tiling = False   # non-tiled: keeps the latent's exact grid size
+                except Exception:  # noqa: BLE001
+                    pass
+                px = P.image_processor.preprocess(base, height=H, width=W).to(device=enc_dev, dtype=vae.dtype)
+                with torch.no_grad():
+                    z_sp = vae.encode(px).latent_dist.sample().detach()  # (1, ae, H/vsf, W/vsf)
+                try:
+                    vae.use_tiling = _pt
+                except Exception:  # noqa: BLE001
+                    pass
+                ae = z_sp.shape[1]
+                z = z_sp.float().view(1, ae, grid_h, patch, grid_w, patch)
+                z = z.permute(0, 2, 4, 3, 5, 1).contiguous().view(1, num_image_tokens, ae * patch * patch)
+                bn_mean = vae.bn.running_mean.view(1, 1, -1).to(enc_dev, torch.float32)
+                bn_std = torch.sqrt(vae.bn.running_var + vae.config.batch_norm_eps).view(1, 1, -1).to(enc_dev, torch.float32)
+                z0 = (z - bn_mean) / bn_std
+                del px, z_sp, z
+            finally:
+                vae.to(home)                 # back to cuda:0 for the pipeline's decode
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:  # noqa: BLE001
+                    pass
+            z0 = z0.to("cuda:0")
+            print(f"[engine] img2img(sdedit) encoded on {enc_dev} z0{tuple(z0.shape)} {_free()}", flush=True)
 
-                    self._img2img_pipe = AutoPipelineForImage2Image.from_pipe(self._pipe)
-                except Exception as exc:  # noqa: BLE001
-                    print(f"[engine] dedicated img2img pipe unavailable ({exc}); reusing base")
-                    self._img2img_pipe = self._pipe
+            # strength -> start sigma, using the SAME schedule the pipeline builds
+            mu = _p._resolution_aware_mu(height=H, width=W, base_mu=0.0)
+            sigmas = _p._logit_normal_sigmas(steps, mu, std=1.5, device="cuda:0")
+            init_t = min(steps * strength, steps)
+            t_start = int(max(steps - init_t, 0))
+            t_start = max(0, min(t_start, steps - 1))
+            sigma_start = float(sigmas[t_start])
+
+            orig_prepare = P.prepare_latents
+            orig_set = P.scheduler.set_timesteps
+
+            def patched_prepare(self_p, batch_size, num_image_tokens, latent_dim, dtype, device, generator, latents=None):
+                noise = torch.randn(z0.shape, generator=generator, device=z0.device, dtype=torch.float32)
+                return (sigma_start * noise + (1.0 - sigma_start) * z0).to(device)
+
+            def patched_set(*a, **k):
+                orig_set(*a, **k)
+                sch = P.scheduler
+                sch.timesteps = sch.timesteps[t_start:]
+                if getattr(sch, "sigmas", None) is not None:
+                    sch.sigmas = sch.sigmas[t_start:]
+                if hasattr(sch, "set_begin_index"):
+                    sch.set_begin_index(0)
+                sch._step_index = None
+
+            P.prepare_latents = types.MethodType(patched_prepare, P)
+            P.scheduler.set_timesteps = patched_set
+            print(f"[engine] img2img(sdedit) strength={strength:.2f} start={t_start}/{steps} sigma={sigma_start:.3f}", flush=True)
+            try:
+                for s in seeds:
+                    gen = torch.Generator(device="cuda:0").manual_seed(int(s))
+                    out = P(prompt=prompt, height=H, width=W, num_inference_steps=steps,
+                            guidance_scale=float(guidance), guidance_schedule=None,
+                            num_images_per_prompt=1, generator=gen, output_type="pil")
+                    images.append(out.images[0])
+                    print(f"[engine] img2img(sdedit) seed={s} done {_free()}", flush=True)
+            finally:
+                P.prepare_latents = orig_prepare
+                P.scheduler.set_timesteps = orig_set
+        return images
+
+    def _img2img_real(self, base, prompt, strength, seeds, steps, guidance):
+        """Proper flow-matching image-to-image (SDEdit) for Ideogram-4.
+
+        The diffusers Ideogram4 port ships NO img2img pipeline and the text2img
+        ``__call__`` accepts no ``image``/``strength`` (only ``latents``). The
+        previous code therefore fell back to the text2img pipe and raised a
+        TypeError. We implement img2img directly, mirroring the canonical
+        Flux/SD3 img2img recipe on the already-loaded components (no extra VRAM):
+
+          1. VAE-encode the init image and pack it into the model's batch-norm-
+             normalised packed latent layout (the exact inverse of the
+             pipeline's decode step).
+          2. Pick the start sigma from ``strength`` (Flux ``get_timesteps``):
+             skip the first ``(1-strength)`` fraction of the schedule and noise
+             the init latents to that sigma  ->  x = (1-sigma)*x0 + sigma*eps
+             (flow-matching forward / ``scale_noise``).
+          3. Run only the remaining "tail" denoising steps (same dual-transformer
+             asymmetric-CFG loop as text2img) and decode.
+        """
+        torch = self._torch
+        prompt = self._expand_prompt(prompt)
+        P = self._pipe
+        from diffusers.pipelines.ideogram4 import pipeline_ideogram4 as _p
+
+        vae = P.vae
+        device = next(vae.parameters()).device
+        patch = P.patch_size
+        vsf = P.vae_scale_factor
+
+        def _free0():
+            try:
+                f0, _ = torch.cuda.mem_get_info(0)
+                f1, _ = torch.cuda.mem_get_info(1)
+                return f"cuda0_free={f0/1e9:.2f}GB cuda1_free={f1/1e9:.2f}GB"
+            except Exception:  # noqa: BLE001
+                return "mem?"
+        print(f"[engine] img2img ENTER {_free0()}", flush=True)
+        try:
+            torch.cuda.empty_cache()   # reclaim VRAM leaked by any prior failed call
+        except Exception:  # noqa: BLE001
+            pass
+        # VRAM safety: img2img adds a VAE *encode* pass (text2img only decodes),
+        # which spikes cuda:0 (it also hosts the unconditional transformer). On a
+        # 16GB T4 a full 1024^2 encode OOMs, so cap the long side for img2img.
+        i2i_max = int(os.environ.get("IMG2IMG_MAX_SIDE", "384"))
+        if max(base.width, base.height) > i2i_max:
+            r = i2i_max / max(base.width, base.height)
+            nw = max(256, (int(base.width * r) // 16) * 16)
+            nh = max(256, (int(base.height * r) // 16) * 16)
+            base = base.resize((nw, nh), Image.LANCZOS)
+        W, H = base.width, base.height
+        grid_h, grid_w = H // (vsf * patch), W // (vsf * patch)
+        num_image_tokens = grid_h * grid_w
+        max_seq = int(getattr(settings, "max_seq_len", 512))
+        latent_dim = P.transformer.config.in_channels
+
+        steps = max(2, int(steps))
+        polish = max(1, round(steps * 0.3))
+        schedule = [float(guidance)] * (steps - polish) + [3.0] * polish
+
+        images: list[Image.Image] = []
+        with self._lock:
+            # ---- conditioning: bring the offloaded encoder back, encode, park it again ----
+            offload = bool(getattr(P, "_offload_encoder", False))
+            enc_gpu = getattr(P, "_encoder_gpu", "cuda:0")
+            if offload:
+                try:
+                    P.text_encoder.to(enc_gpu)
+                except Exception:  # noqa: BLE001
+                    pass
+            llm_features, position_ids, segment_ids, indicator = P.encode_prompt(
+                prompt=prompt, grid_h=grid_h, grid_w=grid_w,
+                max_sequence_length=max_seq, device=device,
+            )
+            if offload:
+                try:
+                    P.text_encoder.to("cpu")
+                    import gc as _gc
+                    _gc.collect()
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
+                except Exception:  # noqa: BLE001
+                    pass
+            print(f"[engine] img2img post-encode_prompt {_free0()}", flush=True)
+            neg_llm_features = torch.zeros(
+                1, num_image_tokens, llm_features.shape[-1],
+                dtype=llm_features.dtype, device=device,
+            )
+            neg_position_ids = position_ids[:, max_seq:]
+            neg_segment_ids = segment_ids[:, max_seq:]
+            neg_indicator = indicator[:, max_seq:]
+            llm_features = llm_features.to(P.transformer.dtype)
+            neg_llm_features = neg_llm_features.to(P.unconditional_transformer.dtype)
+            text_z_padding = torch.zeros(1, max_seq, latent_dim, dtype=torch.float32, device=device)
+
+            # ---- VAE-encode init image -> packed, bn-normalised latents (inverse of decode) ----
+            # Use a NON-tiled encode: tiling blends overlapping tiles and can change
+            # the latent's spatial size (e.g. 80x80 instead of 64x64), desyncing it
+            # from the model's token grid. uncond is parked, so a <=512 non-tiled
+            # encode has ample headroom. Restore the tiling flag afterwards (text2img
+            # decode at 1024 relies on it).
+            _prev_tiling = getattr(vae, "use_tiling", False)
+            try:
+                vae.use_tiling = False
+            except Exception:  # noqa: BLE001
+                pass
+            px = P.image_processor.preprocess(base, height=H, width=W).to(device=device, dtype=vae.dtype)
+            z_sp = vae.encode(px).latent_dist.sample()                 # (1, ae, H/vsf, W/vsf)
+            try:
+                vae.use_tiling = _prev_tiling
+            except Exception:  # noqa: BLE001
+                pass
+            ae = z_sp.shape[1]
+            z = z_sp.float().view(1, ae, grid_h, patch, grid_w, patch)
+            z = z.permute(0, 2, 4, 3, 5, 1).contiguous().view(1, num_image_tokens, ae * patch * patch)
+            bn_mean = vae.bn.running_mean.view(1, 1, -1).to(device=device, dtype=torch.float32)
+            bn_std = torch.sqrt(vae.bn.running_var + vae.config.batch_norm_eps)
+            bn_std = bn_std.view(1, 1, -1).to(device=device, dtype=torch.float32)
+            z0 = (z - bn_mean) / bn_std
+            del px, z_sp, z
+            try:
+                torch.cuda.empty_cache()
+            except Exception:  # noqa: BLE001
+                pass
+            print(f"[engine] img2img post-vae-encode {_free0()}", flush=True)
+
+            # ---- schedule + strength-selected start sigma (Flux get_timesteps) ----
+            schedule_mu = _p._resolution_aware_mu(height=H, width=W, base_mu=0.0)
+            sigmas = _p._logit_normal_sigmas(steps, schedule_mu, std=1.5, device=device)
+            P.scheduler.set_timesteps(sigmas=sigmas.tolist(), device=device)
+            init_t = min(steps * float(strength), steps)
+            t_start = int(max(steps - init_t, 0))
+            t_start = max(0, min(t_start, steps - 1))
+            sigma_start = float(sigmas[t_start])
+            timesteps = P.scheduler.timesteps[t_start:]
+            num_train = P.scheduler.config.num_train_timesteps
+            print(f"[engine] img2img: strength={strength:.2f} -> {len(timesteps)}/{steps} steps "
+                  f"(start sigma={sigma_start:.3f}), {grid_h*patch}x{grid_w*patch} latent")
+
             for s in seeds:
-                gen = torch.Generator(device="cuda:0").manual_seed(int(s))
-                out = self._img2img_pipe(
-                    prompt=prompt,
-                    image=base,
-                    strength=strength,
-                    num_inference_steps=steps,
-                    guidance_scale=guidance,
-                    generator=gen,
-                )
-                images.append(out.images[0])
+                gen = torch.Generator(device=device).manual_seed(int(s))
+                noise = torch.randn(z0.shape, generator=gen, device=device, dtype=torch.float32)
+                # flow-matching forward noising at the start sigma (SDEdit / scale_noise)
+                latents = sigma_start * noise + (1.0 - sigma_start) * z0
+                if hasattr(P.scheduler, "set_begin_index"):
+                    P.scheduler.set_begin_index(t_start)
+                P.scheduler._step_index = None
+                for i, t in enumerate(timesteps):
+                    t_model = (1.0 - (t.float() / num_train)).expand(1).to(P.transformer.dtype)
+                    pos_z = torch.cat([text_z_padding, latents], dim=1).to(P.transformer.dtype)
+                    pos_v = P.transformer(
+                        hidden_states=pos_z, timestep=t_model, encoder_hidden_states=llm_features,
+                        position_ids=position_ids, segment_ids=segment_ids, indicator=indicator,
+                        return_dict=False,
+                    )[0][:, max_seq:].to(torch.float32)
+                    neg_v = P.unconditional_transformer(
+                        hidden_states=latents.to(P.unconditional_transformer.dtype), timestep=t_model,
+                        encoder_hidden_states=neg_llm_features, position_ids=neg_position_ids,
+                        segment_ids=neg_segment_ids, indicator=neg_indicator, return_dict=False,
+                    )[0].to(torch.float32)
+                    gwt = float(schedule[min(t_start + i, len(schedule) - 1)])
+                    v = gwt * pos_v + (1.0 - gwt) * neg_v
+                    latents = P.scheduler.step(-v, t, latents, return_dict=False)[0]
+
+                # ---- decode: bn-denorm + un-pack (mirror pipeline) -> VAE decode ----
+                z = latents * bn_std + bn_mean
+                z = z.view(1, grid_h, grid_w, patch, patch, ae).permute(0, 5, 1, 3, 2, 4).contiguous()
+                z = z.view(1, ae, grid_h * patch, grid_w * patch)
+                decoded = vae.decode(z.to(vae.dtype), return_dict=False)[0]
+                images.append(P.image_processor.postprocess(decoded.float(), output_type="pil")[0])
         return images
 
     # ---- public: upscale / enhance (bigger & sharper) -------------------- #
