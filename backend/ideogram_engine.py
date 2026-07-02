@@ -998,7 +998,7 @@ class IdeogramEngine:
         self,
         image_b64: str,
         prompt: str,
-        strength: float = 0.6,
+        strength: float = 0.7,
         n: int = 1,
         steps: Optional[int] = None,
         guidance: Optional[float] = None,
@@ -1006,7 +1006,15 @@ class IdeogramEngine:
     ) -> GenResult:
         """Reimagine an uploaded photo guided by a prompt.
 
-        `strength` 0..1 = how much to change (0 keeps the photo, 1 ignores it).
+        `strength` 0..1 = how strongly to restyle toward the prompt while keeping
+        the photo's composition. It is mapped onto an empirically calibrated,
+        structure-safe noise window (sigma 0.60..0.90 -- see `_img2img_sdedit`),
+        so the whole range does something useful:
+          * ~0.3  : gentle restyle, composition strongly preserved
+          * ~0.7  : strong restyle (season/style change), composition preserved  <- default
+          * ~0.95 : near-complete reimagining, just short of losing the layout
+        (Below ~0.5 the change is subtle; do not expect a pixel-perfect copy at
+        low strength -- this model needs real noise to follow the prompt at all.)
         """
         self.load()
         base = _b64_to_pil(image_b64)
@@ -1126,11 +1134,33 @@ class IdeogramEngine:
             z0 = z0.to("cuda:0")
             print(f"[engine] img2img(sdedit) encoded on {enc_dev} z0{tuple(z0.shape)} {_free()}", flush=True)
 
-            # strength -> start sigma, using the SAME schedule the pipeline builds
+            # strength -> start sigma. Map `strength` onto an empirically
+            # calibrated, structure-safe sigma window instead of onto a fraction
+            # of the *step count*.
+            #
+            # Why: the previous mapping (t_start = steps*(1-strength), then read
+            # sigma_start off the schedule) spread `strength` across the schedule's
+            # FULL sigma range ~[0.11, 0.97]. But live 2x T4 measurements on this
+            # model show the usable band is narrow:
+            #     sigma ~= 0.67 (str 0.5) -> prompt barely applied (photo unchanged)
+            #     sigma ~= 0.82 (str 0.7) -> IDEAL: prompt applied + composition kept
+            #     sigma ~= 0.94 (str 0.9) -> over-cooked: composition breaks/moves
+            # So most of the old slider was a dead zone (sigma<0.66) or a
+            # destructive zone (sigma>0.92), and the default (0.6) landed just below
+            # the usable band -> users saw "img2img doesn't change anything".
+            #
+            # Fix: linearly map strength onto sigma in [SIGMA_LO, SIGMA_HI] =
+            # [0.60, 0.90], then snap to the nearest schedule sigma (so the injected
+            # noise matches the scheduler's own starting sigma -> consistent
+            # denoise). Now the whole slider does something useful, the top stays
+            # just below the wash-out point, and the default sits on the sweet spot.
+            # NB: strength 0.7 -> sigma 0.82 -> byte-identical to the old strength
+            # 0.7 (the verified-good result), so the sweet spot is reproduced exactly.
             mu = _p._resolution_aware_mu(height=H, width=W, base_mu=0.0)
             sigmas = _p._logit_normal_sigmas(steps, mu, std=1.5, device="cuda:0")
-            init_t = min(steps * strength, steps)
-            t_start = int(max(steps - init_t, 0))
+            SIGMA_LO, SIGMA_HI = 0.60, 0.90
+            sigma_target = SIGMA_LO + strength * (SIGMA_HI - SIGMA_LO)
+            t_start = int(torch.argmin((sigmas.float() - sigma_target).abs()).item())
             t_start = max(0, min(t_start, steps - 1))
             sigma_start = float(sigmas[t_start])
 
@@ -1153,7 +1183,7 @@ class IdeogramEngine:
 
             P.prepare_latents = types.MethodType(patched_prepare, P)
             P.scheduler.set_timesteps = patched_set
-            print(f"[engine] img2img(sdedit) strength={strength:.2f} start={t_start}/{steps} sigma={sigma_start:.3f}", flush=True)
+            print(f"[engine] img2img(sdedit) strength={strength:.2f} -> sigma_target={sigma_target:.3f} start={t_start}/{steps} sigma={sigma_start:.3f}", flush=True)
             try:
                 for s in seeds:
                     gen = torch.Generator(device="cuda:0").manual_seed(int(s))
