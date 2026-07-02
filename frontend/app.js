@@ -15,7 +15,7 @@ const state = {
   negative: "",
   style: "",               // обраний стиль-пресет
   photo: null,             // data URL для «з мого фото» (img2img)
-  strength: 0.6,           // наскільки сильно змінити фото
+  strength: 0.7,           // наскільки сильно змінити фото (0.7 = перевірений оптимум)
   editing: null,           // { imgB64, canvas, ctx, strokes } для режиму «Підправити»
   brush: 55,
   history: loadHistory(),
@@ -820,7 +820,7 @@ function init() {
   });
 
   // сила змін (для фото)
-  const sLabels = (v) => (v <= 35 ? "трохи" : v <= 65 ? "помірно" : "сильно");
+  const sLabels = (v) => (v <= 45 ? "трохи" : v <= 78 ? "помірно" : "сильно");
   $("strengthSlider").addEventListener("input", (e) => {
     state.strength = +e.target.value / 100;
     $("strengthVal").textContent = sLabels(+e.target.value);
