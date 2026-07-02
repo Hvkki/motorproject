@@ -64,7 +64,7 @@ class InpaintRequest(BaseModel):
 class Img2ImgRequest(BaseModel):
     image: str                       # data URL (the uploaded photo)
     prompt: str = Field(..., min_length=1, max_length=2000)
-    strength: float = Field(0.6, ge=0.05, le=0.95)
+    strength: float = Field(0.7, ge=0.05, le=0.95)  # 0.7 = verified sweet spot (see engine._img2img_sdedit)
     count: int = Field(1, ge=1, le=8)
     steps: Optional[int] = None
     guidance: Optional[float] = None

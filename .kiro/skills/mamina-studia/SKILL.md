@@ -282,8 +282,10 @@ instead of a hand-rolled denoise that OOMs the cramped cuda:0:
    **zero** pressure to cuda:0.
 2. **Pack + batch-norm-normalise** into the model's packed latent layout (the
    exact inverse of the pipeline's decode).
-3. **Pick the start sigma from `strength`** (Flux `get_timesteps`): noise the
-   init latents to that sigma — `x = (1-σ)·x0 + σ·ε` (`scale_noise`).
+3. **Pick the start sigma from `strength`** — mapped onto a **calibrated,
+   structure-safe window `sigma ∈ [0.60, 0.90]`** (NOT the raw step-count
+   fraction), then noise the init latents to that sigma — `x = (1-σ)·x0 + σ·ε`
+   (`scale_noise`).
 4. **Inject** those latents by monkeypatching `prepare_latents`, and **truncate**
    the schedule to the tail by monkeypatching `scheduler.set_timesteps`.
 5. **Call the pipeline normally** → its tested encoder-offload + parallel
@@ -298,11 +300,27 @@ strength 0.45–0.70).
 
 **Notes:**
 - The transform prompt **also** needs rich JSON (same safety filter as text2img).
-- `strength` ≈ 0.35–0.5 keeps composition; ≈ 0.6–0.8 restyles heavily.
+- **`strength` calibration (verified on live 2× T4).** `strength` is mapped
+  **linearly onto a start-sigma window `[0.60, 0.90]`**, then snapped to the
+  nearest schedule sigma. This was tuned from a live sweep (same init + rich
+  winter prompt): raw sigma `0.67` barely touched the photo, `0.82` gave the
+  ideal "prompt applied + composition preserved" result, and `0.94` broke the
+  composition (objects moved/duplicated). The **old mapping** (strength → fraction
+  of the step count) spread the slider across the schedule's full `~[0.11, 0.97]`
+  range, so most of it was a dead zone (`σ<0.66`, no visible change — the
+  "img2img doesn't work" report) or a destructive zone (`σ>0.92`). Effect of the
+  window mapping:
+  - `strength ≈ 0.3` → gentle restyle, composition strongly preserved;
+  - `strength ≈ 0.7` (**default**) → strong restyle (e.g. summer→winter) with
+    composition preserved — this is `σ≈0.82`, the verified sweet spot;
+  - `strength ≈ 0.95` → near-complete reimagining, just short of losing layout.
+  Don't expect a pixel-perfect copy at low strength: this model needs real noise
+  to follow the prompt at all.
 - `IMG2IMG_MAX_SIDE` (default 1024) caps the long side. Lower it only if you
   load extra components onto the GPUs.
-- Verified: a 1024² mountain-lake photo → autumn reinterpretation at strength
-  0.45 and 0.70, both real (std ≈ 69) and structure-preserving.
+- Verified: a 1024² summer mountain-lake cabin → deep-winter reinterpretation at
+  `strength 0.7`, real and structure-preserving (cabin, dock, boat, mountains all
+  kept); `0.5` left it summer, `0.9` moved/duplicated the cabin.
 
 ---
 
