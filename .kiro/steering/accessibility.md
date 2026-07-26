@@ -72,14 +72,18 @@ Users depend on TalkBack for everything outside this app. It must keep winning.
 ## Commands
 
 ```bash
-export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))  # needs JDK 17-21
-./gradlew :core:test          # 97 tests, no Android SDK required
-tools/privacy_guard.sh        # must print "clean"
+./gradlew :core:test                            # 98 tests, no Android SDK needed
+tools/privacy_guard.sh                          # must print "clean"
 tools/privacy_guard.sh --self-test
+./gradlew :android:assembleDebug :android:lintDebug   # needs ANDROID_HOME
 ```
 
 Gradle 8.14 cannot run on JDK 25; it fails with a bare version number as the
-error message. Use JDK 17 or 21.
+entire error message. Use JDK 17 or 21.
 
-`:android` is intentionally excluded from `settings.gradle.kts` so the suite runs
-without an Android SDK. See `android/README.md` to build the app.
+`:android` is included only when an Android SDK is visible, so the core suite
+still runs on a bare JDK. Lint must stay at zero errors — it is what caught
+`QUERY_ALL_PACKAGES`, which Play would have rejected.
+
+Do not write a slash-star glob inside a Kotlin comment. Kotlin block comments
+nest, so it opens a nested comment and silently swallows the rest of the file.

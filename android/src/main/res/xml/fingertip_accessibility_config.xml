@@ -15,6 +15,7 @@
   assisting users with disabilities is this app's genuine and primary purpose.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackSpoken"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
@@ -22,5 +23,6 @@
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_service_description"
     android:isAccessibilityTool="true"
+    tools:ignore="UnusedAttribute"
     android:notificationTimeout="100"
     android:summary="@string/accessibility_service_summary" />

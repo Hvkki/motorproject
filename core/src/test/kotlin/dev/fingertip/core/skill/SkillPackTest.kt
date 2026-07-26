@@ -92,7 +92,42 @@ class SkillPackTest {
         }
     }
 
+    @Test
+    fun `every app a skill targets is declared in the Android manifest queries`() {
+        // Android package visibility: Device.launchApp can only resolve a launch
+        // intent for a package declared in <queries>. That list is baked into the
+        // manifest at build time, so a skill pack shipped over the air cannot add
+        // a new app on its own — it needs an app release.
+        //
+        // This check lives in the core suite rather than the Android module so it
+        // runs in CI without an Android SDK, which is where it would otherwise be
+        // skipped exactly when it matters.
+        val manifest = File(skillsDir.parentFile, "android/src/main/AndroidManifest.xml")
+        if (!manifest.isFile) {
+            println("No Android manifest found; skipping package visibility check.")
+            return
+        }
+
+        val declared = PACKAGE_DECLARATION.findAll(manifest.readText())
+            .map { it.groupValues[1] }
+            .toSet()
+
+        val required = files
+            .map { SkillJson.decode(it.readText()) }
+            .mapNotNull { it.app }
+            .toSet()
+
+        val missing = required - declared
+        assertTrue(
+            missing.isEmpty(),
+            "skills target package(s) absent from <queries> in AndroidManifest.xml: " +
+                "${missing.sorted().joinToString()}. launchApp will fail for these at runtime.",
+        )
+    }
+
     private companion object {
+        val PACKAGE_DECLARATION = Regex("""<package\s+android:name\s*=\s*"([^"]+)"""")
+
         /** Walks up from the module directory so the test works from any working dir. */
         fun findSkillsDir(): File {
             var dir: File? = File(".").absoluteFile

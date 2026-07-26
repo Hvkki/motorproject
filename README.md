@@ -58,8 +58,8 @@ This is enforced structurally, not by convention:
 ## Layout
 
 ```
-core/     Pure Kotlin/JVM. All logic. No Android imports. 97 tests.
-android/  Thin AccessibilityService adapter over the Device port. UNCOMPILED.
+core/     Pure Kotlin/JVM. All logic. No Android imports. 98 tests.
+android/  Thin AccessibilityService adapter over the Device port. Builds an APK.
 skills/   The skill pack. One JSON file per task.
 tools/    privacy_guard.sh
 ```
@@ -72,19 +72,25 @@ app UIs change silently and rot a skill library.
 
 ```bash
 export JAVA_HOME=/path/to/jdk17
-./gradlew :core:test
+./gradlew :core:test          # no Android SDK required
 tools/privacy_guard.sh
 ```
 
-No Android SDK required: `:android` is deliberately excluded from
-`settings.gradle.kts`. See [android/README.md](android/README.md) to wire it up.
+`:android` is included automatically when an SDK is visible (`ANDROID_HOME`,
+`ANDROID_SDK_ROOT`, or `sdk.dir` in `local.properties`), and skipped when it is
+not — so the core suite runs on a bare JDK:
+
+```bash
+export ANDROID_HOME=/path/to/android-sdk   # platforms;android-35, build-tools;35.0.0
+./gradlew :android:assembleDebug :android:lintDebug
+```
 
 > Gradle 8.14 cannot run on JDK 25 and fails with a bare version string as the
 > entire error message. Use JDK 17 or 21.
 
 ## Status
 
-**Done and verified — 97 passing tests:**
+**Done and verified — 98 passing tests:**
 
 - Screen model, selector engine, node-tree serializer
 - Redaction with the type-level egress guarantee
@@ -94,9 +100,13 @@ No Android SDK required: `:android` is deliberately excluded from
 - `FakeDevice` with a virtual clock — skills replay against recorded screens on a
   plain JVM
 
-**Written but never compiled** (no Android SDK in the authoring environment):
+**Compiles, but never run on a device:**
 
-- `AccessibilityDevice`, gestures, TTS, the service itself, manifest and config
+- `AccessibilityDevice`, gestures, TTS, the service, manifest and config all
+  build into a 1.2 MB debug APK, and Lint passes with zero errors and warnings.
+- That is a floor, not a ceiling. The node-tree assumptions, gesture dispatch and
+  TalkBack coexistence are unverified on real hardware. Compiling proves the API
+  calls exist, not that they behave as assumed.
 
 **Not built:**
 

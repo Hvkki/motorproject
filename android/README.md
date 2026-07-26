@@ -1,22 +1,26 @@
 # Android module
 
-> **Status: written but never compiled.** This module was authored in an
-> environment with no Android SDK, so it has not been through a compiler or run
-> on a device. Treat every file here as a reviewed design draft, not working
-> code. `:core` is a different matter — it is fully tested on the JVM.
+> **Status: compiles and packages. Never run on a device.**
+>
+> `./gradlew :android:assembleDebug` produces a 1.2 MB debug APK and
+> `:android:lintDebug` passes with zero errors and zero warnings, against
+> compileSdk 35 / AGP 8.7.3 / Kotlin 2.1.0 / JDK 17.
+>
+> What that does *not* prove: no line of this has executed on real hardware. The
+> accessibility node-tree assumptions, gesture dispatch, and TalkBack coexistence
+> are all unverified in practice. Compiling is a floor, not a ceiling.
 
-## Wiring it up
+## Building
 
-1. Add `include(":android")` to `settings.gradle.kts`.
-2. Add `id("com.android.application") version "8.7.3" apply false` to the root
-   `build.gradle.kts` plugins block.
-3. Add `kotlin("android") version "2.1.0" apply false` alongside it.
-4. Point `ANDROID_HOME` at an SDK with platform 35 installed.
-5. `./gradlew :android:assembleDebug`
+The module is included automatically when an SDK is visible — via `ANDROID_HOME`,
+`ANDROID_SDK_ROOT`, or `sdk.dir` in `local.properties`. Without one,
+`settings.gradle.kts` skips it so the core suite still runs on a bare JDK.
 
-Expect to fix compile errors on the first pass — API-level details around
-`AccessibilityNodeInfo.AccessibilityAction` and `TextToSpeech` overrides are the
-likely culprits.
+```bash
+export ANDROID_HOME=/path/to/android-sdk   # needs platforms;android-35, build-tools;35.0.0
+export JAVA_HOME=/path/to/jdk17            # Gradle 8.14 will not run on JDK 25
+./gradlew :android:assembleDebug :android:lintDebug
+```
 
 ## What each file does
 
@@ -55,9 +59,16 @@ rather than hold references across screen transitions.
 **Play Store review.** `isAccessibilityTool="true"` is set and the service
 description in `strings.xml` is the prominent disclosure Play requires. It names
 what is read, what leaves the device, and what is stripped first. Keep it
-specific — generic boilerplate is a common rejection reason. `QUERY_ALL_PACKAGES`
-also needs a declared justification; if review pushes back, replace it with a
-`<queries>` element generated from the skill pack.
+specific — generic boilerplate is a common rejection reason.
+
+**Package visibility limits the flywheel.** An earlier draft used
+`QUERY_ALL_PACKAGES`; Lint rejects it and Play grants it to almost nobody, so the
+manifest now declares an explicit `<queries>` list. The consequence is
+structural and worth understanding before betting on shareable skill packs: that
+list is fixed at build time, so **a skill pack delivered over the air cannot add
+support for an app that is not already declared.** New app support needs an app
+release. `SkillPackTest` fails the build if a skill targets an undeclared
+package, so the two cannot drift, but the release coupling is real.
 
 ## Not built yet
 

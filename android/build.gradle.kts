@@ -1,23 +1,26 @@
-/*
- * Android app module.
- *
- * NOT part of the root Gradle build: `settings.gradle.kts` includes only `:core`,
- * so the test suite runs anywhere with just a JDK and no Android SDK.
- *
- * To build the app, add this line to settings.gradle.kts:
- *
- *     include(":android")
- *
- * and add the Android Gradle Plugin to the root build's plugins block:
- *
- *     id("com.android.application") version "8.7.3" apply false
- *
- * See android/README.md for the full checklist.
- */
-
 plugins {
     id("com.android.application")
     kotlin("android")
+}
+
+/**
+ * Stages the skill pack into an `assets/skills/` directory.
+ *
+ * `assets.srcDirs` flattens each source directory into the assets root, so
+ * pointing it straight at the top-level `skills` directory would land the JSON
+ * files directly in the assets root, while `SkillPack.load` looks for them under
+ * an `assets/skills` subdirectory. Copying into a nested directory keeps the
+ * pack at the repository root — where it is reviewed and diffed — without
+ * duplicating it into the module.
+ *
+ * Note: avoid writing a slash-star glob in Kotlin comments. Kotlin block
+ * comments nest, so it opens a nested comment and silently swallows the rest of
+ * the file.
+ */
+val syncSkillPack by tasks.registering(Sync::class) {
+    from(rootProject.layout.projectDirectory.dir("skills"))
+    into(layout.buildDirectory.dir("generated/skillAssets/skills"))
+    include("**/*.json")
 }
 
 android {
@@ -26,7 +29,7 @@ android {
 
     defaultConfig {
         applicationId = "dev.fingertip"
-        // 26 covers dispatchGesture, which the gesture fallback depends on.
+        // dispatchGesture, used by the gesture fallback, needs API 24+.
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -36,20 +39,16 @@ android {
     sourceSets {
         named("main") {
             java.srcDirs("src/main/kotlin")
-            // Skills ship as assets so the pack can be updated independently of code.
-            assets.srcDirs("src/main/assets", "../skills")
+            assets.srcDirs(
+                "src/main/assets",
+                layout.buildDirectory.dir("generated/skillAssets"),
+            )
         }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
     }
 
     buildTypes {
@@ -61,6 +60,16 @@ android {
             )
         }
     }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(syncSkillPack)
 }
 
 dependencies {
