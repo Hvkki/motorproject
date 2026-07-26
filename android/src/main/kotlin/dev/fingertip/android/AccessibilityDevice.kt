@@ -26,16 +26,12 @@ import dev.fingertip.core.screen.ScreenSnapshot
  * screens, which would freeze the UI and trip the watchdog. [SkillRunner] owns
  * that background thread; do not call this class directly from a callback.
  */
-class AccessibilityDevice(
+internal class AccessibilityDevice(
     private val service: AccessibilityService,
-    private val limits: Limits = Limits(),
+    limits: AndroidNodeTree.Limits = AndroidNodeTree.Limits(),
 ) : Device {
 
-    data class Limits(
-        /** Guard against pathological trees (deeply nested WebViews). */
-        val maxNodes: Int = 800,
-        val maxDepth: Int = 40,
-    )
+    private val nodeTree = AndroidNodeTree(limits)
 
     /**
      * handle -> live node, rebuilt on every [snapshot].
@@ -61,86 +57,14 @@ class AccessibilityDevice(
                 title = null,
             )
 
-        val collected = mutableListOf<AccessibilityNodeInfo>()
-        val tree = convert(root, depth = 0, collected = collected)
-
-        val snapshot = ScreenSnapshot.of(
-            packageName = root.packageName?.toString() ?: UNKNOWN_PACKAGE,
-            root = tree,
+        val capture = nodeTree.capture(
+            root = root,
             title = activeWindowTitle(),
             capturedAtMs = nowMs(),
             screenshotAvailable = !isSecureWindow(),
         )
-
-        // ScreenSnapshot.of assigns handles in pre-order; convert() collected the
-        // source nodes in the same pre-order, so the two zip up exactly.
-        liveNodes = snapshot.nodes.map { it.handle }.zip(collected).toMap()
-        return snapshot
-    }
-
-    private fun convert(
-        source: AccessibilityNodeInfo,
-        depth: Int,
-        collected: MutableList<AccessibilityNodeInfo>,
-    ): Node {
-        collected += source
-
-        val rect = Rect().also { source.getBoundsInScreen(it) }
-        val children = if (depth >= limits.maxDepth || collected.size >= limits.maxNodes) {
-            emptyList()
-        } else {
-            (0 until source.childCount).mapNotNull { index ->
-                source.getChild(index)?.let { child -> convert(child, depth + 1, collected) }
-            }
-        }
-
-        return Node(
-            role = roleOf(source),
-            text = source.text?.toString(),
-            contentDescription = source.contentDescription?.toString(),
-            viewId = source.viewIdResourceName,
-            bounds = Bounds(rect.left, rect.top, rect.right, rect.bottom),
-            clickable = source.isClickable,
-            longClickable = source.isLongClickable,
-            editable = source.isEditable,
-            scrollable = source.isScrollable,
-            focused = source.isAccessibilityFocused || source.isFocused,
-            checked = if (source.isCheckable) source.isChecked else null,
-            isPassword = source.isPassword,
-            enabled = source.isEnabled,
-            visible = source.isVisibleToUser,
-            children = children,
-        )
-    }
-
-    /**
-     * Normalises Android's class names into a small role vocabulary.
-     *
-     * Collection info is checked before class names: a chat row might be any
-     * ViewGroup subclass, but `collectionItemInfo` reliably marks it as a list
-     * item, which is what "read my last message" depends on.
-     */
-    private fun roleOf(node: AccessibilityNodeInfo): Role {
-        if (node.collectionItemInfo != null) return Role.LIST_ITEM
-        if (node.collectionInfo != null) return Role.LIST
-
-        val className = node.className?.toString().orEmpty()
-        return when {
-            className.endsWith("EditText") || node.isEditable -> Role.EDIT_TEXT
-            className.endsWith("Switch") || className.endsWith("ToggleButton") -> Role.SWITCH
-            className.endsWith("CheckBox") || className.endsWith("RadioButton") -> Role.CHECKBOX
-            className.endsWith("Button") || className.endsWith("ImageButton") -> Role.BUTTON
-            className.endsWith("WebView") -> Role.WEB_VIEW
-            className.endsWith("ImageView") -> Role.IMAGE
-            className.endsWith("TextView") -> Role.TEXT
-            className.contains("TabWidget") || className.contains("TabLayout") -> Role.TAB
-            className.endsWith("RecyclerView") || className.endsWith("ListView") ||
-                className.endsWith("GridView") || className.endsWith("ScrollView") -> Role.LIST
-            className.contains("Layout") || className.contains("ViewGroup") -> Role.CONTAINER
-            // A clickable node with no recognisable class still behaves like a button.
-            node.isClickable -> Role.BUTTON
-            else -> Role.UNKNOWN
-        }
+        liveNodes = capture.handles()
+        return capture.snapshot
     }
 
     private fun activeWindowTitle(): String? =
@@ -168,11 +92,7 @@ class AccessibilityDevice(
 
     override fun tap(handle: Int): Boolean {
         val node = liveNodes[handle] ?: return false
-        // Walk up to the nearest clickable ancestor: labels are frequently
-        // non-clickable children of the row that actually handles the tap.
-        clickableSelfOrAncestor(node)?.let {
-            if (it.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
-        }
+        if (AndroidNodeActions.clickViaAccessibility(node)) return true
         return tapByGesture(node)
     }
 
@@ -236,17 +156,6 @@ class AccessibilityDevice(
 
     override fun nowMs(): Long = System.currentTimeMillis()
 
-    private fun clickableSelfOrAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        var current: AccessibilityNodeInfo? = node
-        var hops = 0
-        while (current != null && hops < MAX_ANCESTOR_HOPS) {
-            if (current.isClickable && current.isEnabled) return current
-            current = current.parent
-            hops++
-        }
-        return null
-    }
-
     /** Last resort when no ancestor accepts ACTION_CLICK: synthesise a touch. */
     private fun tapByGesture(node: AccessibilityNodeInfo): Boolean {
         val rect = Rect().also { node.getBoundsInScreen(it) }
@@ -256,6 +165,5 @@ class AccessibilityDevice(
 
     private companion object {
         const val UNKNOWN_PACKAGE = "unknown"
-        const val MAX_ANCESTOR_HOPS = 6
     }
 }
