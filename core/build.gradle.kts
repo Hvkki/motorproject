@@ -17,5 +17,8 @@ tasks.test {
     useJUnitPlatform()
     testLogging {
         events("passed", "failed", "skipped")
+        // Surface test stdout only when running the opt-in live Kiro tests, whose
+        // transcript is the whole point of running them. Keeps CI output clean.
+        showStandardStreams = !System.getenv("KIRO_API_KEY").isNullOrBlank()
     }
 }

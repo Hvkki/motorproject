@@ -45,7 +45,7 @@ class KiroCliPlannerTest {
     // --- command construction -------------------------------------------------
 
     @Test
-    fun `invokes kiro-cli headlessly and trusts no tools`() {
+    fun `invokes kiro-cli headlessly and never trusts tools`() {
         val runner = FakeRunner(ok("""{"decision":"done","summary":"ok"}"""))
 
         KiroCliPlanner(runner).next(request())
@@ -54,10 +54,11 @@ class KiroCliPlannerTest {
         assertEquals("kiro-cli", command.first())
         assertContains(command, "chat")
         assertContains(command, "--no-interactive")
-        // Trusting no tools keeps the CLI advisory: Fingertip does the tapping,
-        // behind the confirmation gates.
-        assertContains(command, "--trust-tools=")
+        // Without a trust flag, tool use requires approval and is therefore blocked
+        // in non-interactive mode. Trusting everything would put a second,
+        // unsupervised actor on the user's phone.
         assertTrue("--trust-all-tools" !in command, "must never trust all tools")
+        assertTrue(command.none { it.startsWith("--trust") }, "no trust flags expected: $command")
     }
 
     @Test
@@ -76,20 +77,31 @@ class KiroCliPlannerTest {
     }
 
     @Test
-    fun `sends the observation on stdin rather than as an argument`() {
+    fun `passes the observation as the positional argument, not on stdin`() {
+        // Verified against kiro-cli 2.14.2: piped stdin is not consumed as context.
+        // It burns a turn trying to shell out to read it, so the prompt never
+        // reaches the model.
         val runner = FakeRunner(ok("""{"decision":"done","summary":"ok"}"""))
 
         KiroCliPlanner(runner).next(request())
 
-        val stdin = runner.stdins.single()
-        assertTrue(stdin != null && stdin.isNotBlank(), "nothing was piped in")
-        assertContains(stdin!!, "search google for the weather")
-        assertContains(stdin, "BEGIN UNTRUSTED SCREEN CONTENT")
-        // A whole screen dump as an argv entry risks hitting argument length limits.
-        assertTrue(
-            runner.commands.single().none { "UNTRUSTED" in it },
-            "the screen was passed as an argument",
+        assertEquals(null, runner.stdins.single(), "stdin is not read by kiro-cli")
+        val prompt = runner.commands.single().last()
+        assertContains(prompt, "search google for the weather")
+        assertContains(prompt, "BEGIN UNTRUSTED SCREEN CONTENT")
+        assertContains(prompt, "Do not use any tools")
+    }
+
+    @Test
+    fun `retry correction travels in the argument too`() {
+        val runner = FakeRunner(
+            ok("no json at all"),
+            ok("""{"decision":"done","summary":"ok"}"""),
         )
+
+        KiroCliPlanner(runner).next(request())
+
+        assertContains(runner.commands[1].last(), "previous reply could not be used")
     }
 
     @Test
@@ -133,7 +145,7 @@ class KiroCliPlannerTest {
         assertEquals(2, runner.calls)
         // Telling the model exactly what was wrong is far more effective than a
         // bare retry.
-        val secondPrompt = runner.stdins[1]!!
+        val secondPrompt = runner.commands[1].last()
         assertContains(secondPrompt, "previous reply could not be used")
         assertContains(secondPrompt, "No JSON object")
     }

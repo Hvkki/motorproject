@@ -88,7 +88,10 @@ class KiroCliPlanner(
                 }
             }
 
-            val result = runner.run(command(), prompt, config.timeoutMs)
+            // No stdin: verified against kiro-cli 2.14.2, which does not consume
+            // piped input as context and instead burns a turn trying to shell out
+            // to read it. The prompt has to be the positional argument.
+            val result = runner.run(command(prompt), null, config.timeoutMs)
 
             if (result.timedOut) {
                 return PlanDecision.GiveUp("Kiro CLI timed out after ${config.timeoutMs}ms.")
@@ -111,19 +114,20 @@ class KiroCliPlanner(
         return PlanDecision.GiveUp("Kiro CLI produced no decision.")
     }
 
-    private fun command(): List<String> = buildList {
+    private fun command(prompt: String): List<String> = buildList {
         add(config.executable)
         add("chat")
         add("--no-interactive")
-        // Trust no tools at all. This planner must only return a decision;
-        // Fingertip performs the tapping through the accessibility API, behind the
-        // confirmation gates. Letting the CLI act directly would put a second,
-        // unsupervised actor on the user's phone.
-        add("--trust-tools=")
         addAll(config.extraArgs)
-        // The observation and rules arrive on stdin; this argument is only the
-        // directive, keeping a large screen dump off the command line.
-        add("Read the instructions on standard input and reply with one JSON object only.")
+        // No tool-trust flag is passed on purpose. Without one, kiro-cli cannot
+        // execute a tool without approval, so in non-interactive mode tool use is
+        // blocked by default — which is what we want, since Fingertip does the
+        // tapping through the accessibility API behind the confirmation gates.
+        //
+        // `--trust-tools=` with an empty value was tried and rejected by 2.14.2 as
+        // a malformed custom-tool name, so omitting the flag is both safer and
+        // actually valid.
+        add(prompt)
     }
 
     /** Turns an exit code into something diagnosable. Documented codes: 0, 1, 3. */

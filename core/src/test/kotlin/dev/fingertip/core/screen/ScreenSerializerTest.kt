@@ -113,6 +113,32 @@ class ScreenSerializerTest {
     }
 
     @Test
+    fun `names the attribute a label came from`() {
+        // Discovered from a live model run: with every label rendered as a bare
+        // string, the model selected {"text": ...} for a description-only button,
+        // matched nothing, and appeared to be stuck. Selectors distinguish these
+        // fields, so the wire format has to as well.
+        val out = render(
+            ScreenSnapshot.of(
+                "com.example",
+                Nodes.container(
+                    Nodes.button("Send"),
+                    Nodes.button("Search", byDescription = true),
+                    // Blank hint, so the label can only come from the view id.
+                    Nodes.editText(hint = "", id = "query_field"),
+                ),
+            ),
+        )
+
+        assertContains(out, "button \"Send\"")
+        assertContains(out, "button desc=\"Search\"")
+        assertTrue(
+            out.lines().any { "edit_text" in it && "id=" in it },
+            "an id-only element should be marked as such:\n$out",
+        )
+    }
+
+    @Test
     fun `a password field keeps its hint instead of showing the placeholder`() {
         // Rendering edit_text "[redacted]" would lose the only clue about what
         // the field is for, leaving the agent unable to direct the user.

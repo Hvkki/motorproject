@@ -57,7 +57,13 @@ class ScreenSerializer(private val options: Options = Options()) {
 
     private fun render(node: Node): String = buildString {
         append('[').append(node.handle).append("] ").append(node.role.wire)
-        displayLabel(node)?.let { append(' ').append('"').append(ellipsise(it)).append('"') }
+        labelOf(node)?.let { label ->
+            // The prefix tells a reader WHICH attribute carries the label, because
+            // selectors distinguish text from description from id. Emitting a bare
+            // string for all three invites selecting on the wrong field, which
+            // matches nothing and looks like the element is missing.
+            append(' ').append(label.prefix).append('"').append(ellipsise(label.value)).append('"')
+        }
 
         val flags = buildList {
             // Disabled elements advertise no actions. Selector.findAll refuses to
@@ -88,23 +94,30 @@ class ScreenSerializer(private val options: Options = Options()) {
         }
     }
 
+    /** A label plus the wire prefix naming its source attribute. */
+    private data class Label(val prefix: String, val value: String)
+
     /**
-     * Label to show for a node.
+     * Label to show for a node, and which attribute it came from.
      *
-     * [Node.label] prefers visible text, which is right almost everywhere but
-     * wrong for password fields: after redaction their text is the placeholder,
-     * so preferring it would render `edit_text "[redacted]"` and throw away the
-     * hint that says what the field is actually for. Fall back to the
-     * description so the agent can still tell the user where to type.
+     * Visible text wins almost everywhere, but not for password fields: after
+     * redaction their text is the placeholder, so preferring it would render
+     * `edit_text "[redacted]"` and discard the hint saying what the field is for.
      */
-    private fun displayLabel(node: Node): String? =
+    private fun labelOf(node: Node): Label? {
+        val text = node.text?.takeIf { it.isNotBlank() }
+        val description = node.contentDescription?.takeIf { it.isNotBlank() }
+        val viewId = node.viewId?.takeIf { it.isNotBlank() }
+
         if (node.isPassword) {
-            node.contentDescription?.takeIf { it.isNotBlank() }
-                ?: node.viewId?.takeIf { it.isNotBlank() }
-                ?: node.label
-        } else {
-            node.label
+            description?.let { return Label("desc=", it) }
+            viewId?.let { return Label("id=", Node.humaniseViewId(it)) }
+            return text?.let { Label("", it) }
         }
+        text?.let { return Label("", it) }
+        description?.let { return Label("desc=", it) }
+        return viewId?.let { Label("id=", Node.humaniseViewId(it)) }
+    }
 
     private fun ellipsise(text: String): String {
         val flat = text.replace(WHITESPACE, " ").trim()
