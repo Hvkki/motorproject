@@ -1,14 +1,20 @@
 # Android module
 
-> **Status: compiles and packages. Never run on a device.**
+> **Status: verified on an emulator against real Android Settings. Never run on a
+> physical phone.**
 >
 > `./gradlew :android:assembleDebug` produces a 1.2 MB debug APK and
 > `:android:lintDebug` passes with zero errors and zero warnings, against
 > compileSdk 35 / AGP 8.7.3 / Kotlin 2.1.0 / JDK 17.
 >
-> What that does *not* prove: no line of this has executed on real hardware. The
-> accessibility node-tree assumptions, gesture dispatch, and TalkBack coexistence
-> are all unverified in practice. Compiling is a floor, not a ceiling.
+> `:android:testDebugUnitTest` runs 18 Robolectric tests on the JVM in seconds,
+> and `RealSettingsNodeTreeTest` passes on an emulator against the real Settings
+> app in the `instrumentation` CI job.
+>
+> What that still does *not* prove: **TalkBack coexistence**, real
+> `dispatchGesture` behaviour, non-AOSP OEM layouts, and text-to-speech output.
+> An emulator is not a phone, and `google_apis` images have no screen reader
+> installed. Run `tools/device_test.sh` on a physical device to close that gap.
 
 ## Building
 

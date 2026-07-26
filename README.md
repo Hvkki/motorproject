@@ -103,6 +103,23 @@ export ANDROID_HOME=/path/to/android-sdk   # platforms;android-35, build-tools;3
 > Gradle 8.14 cannot run on JDK 25 and fails with a bare version string as the
 > entire error message. Use JDK 17 or 21.
 
+## Testing on a real phone
+
+An emulator cannot verify TalkBack coexistence: `google_apis` images ship no
+screen reader, and installing Android Accessibility Suite needs an interactive
+Play Store sign-in. Use a physical device:
+
+```bash
+export ANDROID_HOME=/path/to/android-sdk
+tools/device_test.sh              # add --keep-enabled to keep it on afterwards
+```
+
+The script appends Fingertip to the enabled-services list rather than replacing
+it, and restores the original settings on exit even on failure. Replacing that
+list would switch TalkBack off, which on a blind user's phone is a lockout rather
+than a test. It writes `device-test-report.txt` containing the result, whether
+TalkBack stayed bound, and the redacted Settings node tree the agent actually saw.
+
 ## Kaggle validation
 
 `kaggle/fingertip_kaggle.py` is a private Kaggle script kernel that provisions
@@ -168,16 +185,32 @@ If the Kaggle username is not `hvkki`, change the `id` owner in
 Robolectric runs these on the JVM in about 30 seconds with no emulator and no
 KVM, which is what makes them usable as a pre-commit gate.
 
-**Compiles, but not yet run on real hardware:**
+**Verified on a real Android system — `RealSettingsNodeTreeTest` passing in CI:**
 
-- `AccessibilityDevice`, gestures, TTS, the service, manifest and config build
-  into a 1.2 MB debug APK; Lint passes with zero errors and warnings.
-- Robolectric uses shadow implementations. It proves the traversal and click
-  logic is correct against the framework's API contract, **not** that a real
-  device behaves identically. Real gesture dispatch, genuine third-party app
-  layouts, and TalkBack coexistence remain unverified.
-- `RealSettingsNodeTreeTest` covers those against Android Settings and runs in
-  the `instrumentation` CI job, where GitHub's Linux runners provide KVM.
+The `instrumentation` job boots a hardware-accelerated API 35 emulator on
+GitHub's KVM-enabled Linux runners, installs the app, enables the accessibility
+service, and tests against the **real Android Settings app**:
+
+- The genuine Settings `AccessibilityNodeInfo` tree is read and serialised to
+  compact redacted text, with no screenshot and no OCR.
+- The ancestor walk clicks a *label* and successfully navigates, proving the
+  behaviour every skill depends on works against a real system app.
+- The handle-to-live-node mapping holds on a real tree, and the node budget
+  truncates a genuinely wide one.
+
+So the `AccessibilityNodeInfo` assumptions are no longer guesses.
+
+**Still unverified — needs a physical phone:**
+
+- **TalkBack coexistence, the project's biggest design risk.** Emulator
+  `google_apis` images do not ship TalkBack; it comes from Android Accessibility
+  Suite via the Play Store, whose install needs an interactive Google sign-in
+  that CI cannot reliably perform. Run `tools/device_test.sh` on a real device.
+- Real gesture dispatch (`dispatchGesture`), which only matters where
+  accessibility actions fail and the coordinate fallback engages.
+- Third-party app layouts. Settings on AOSP is not Settings on One UI, and the
+  two example skills use guessed selectors marked `NOT DEVICE-VERIFIED`.
+- Speech output. `TtsSpeaker` has never spoken.
 
 **Not built:**
 
