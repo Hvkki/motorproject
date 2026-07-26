@@ -13,6 +13,12 @@ local.properties
 *.apk
 *.aab
 captures/
+.kaggle-work/
+fingertip-artifacts/
 
 # OS
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc

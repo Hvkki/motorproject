@@ -72,11 +72,17 @@ Users depend on TalkBack for everything outside this app. It must keep winning.
 ## Commands
 
 ```bash
-./gradlew :core:test                            # 98 tests, no Android SDK needed
-tools/privacy_guard.sh                          # must print "clean"
+./gradlew :core:test                     # 98 tests, no Android SDK needed
+tools/privacy_guard.sh                   # must print "clean"
 tools/privacy_guard.sh --self-test
-./gradlew :android:assembleDebug :android:lintDebug   # needs ANDROID_HOME
+./gradlew :android:testDebugUnitTest     # 18 Robolectric tests, needs ANDROID_HOME
+./gradlew :android:assembleDebug :android:lintDebug
 ```
+
+Test the Android layer with Robolectric, not an emulator. The emulator needs
+**KVM**, not a GPU, and without `/dev/kvm` a full Android boot is too slow to be
+usable. Device-only concerns (real gesture dispatch, third-party layouts, TalkBack
+coexistence) belong in `androidTest` and run in CI where KVM exists.
 
 Gradle 8.14 cannot run on JDK 25; it fails with a bare version number as the
 entire error message. Use JDK 17 or 21.

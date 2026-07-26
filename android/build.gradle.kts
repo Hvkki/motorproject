@@ -52,6 +52,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        unitTests {
+            // Robolectric runs the real Android framework on the JVM, which is the
+            // only way to exercise AccessibilityNodeInfo without KVM and an
+            // emulator. Resources are required for it to build a package context.
+            isIncludeAndroidResources = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -77,6 +86,12 @@ dependencies {
     implementation(project(":core"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
+    // Fast tier: real Android framework classes on the JVM, seconds per run.
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation("junit:junit:4.13.2")
+
+    // Slow tier: real device/emulator, requires KVM. Compiled here, run elsewhere.
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

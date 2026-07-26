@@ -78,9 +78,10 @@ class RealSettingsNodeTreeTest {
         assertTrue("Node-tree wire payload grew unexpectedly: ${wire.length} chars", wire.length < 20_000)
         assertFalse("Raw Android class names leaked into the compact model", "android.widget." in wire)
 
-        // Emit only the already-redacted representation for the Gradle report.
-        // This gives a human-readable proof of what the model receives without
-        // ever writing raw screen content or image pixels.
+        // Persist only the already-redacted representation. The Kaggle runner
+        // retrieves this with `run-as` as proof of what the model receives; raw
+        // screen content and image pixels are never written to disk.
+        context.filesDir.resolve("node-tree.txt").writeText(wire)
         println("FINGERTIP_NODE_TREE_BEGIN\n$wire\nFINGERTIP_NODE_TREE_END")
     }
 
