@@ -1,0 +1,20 @@
+{
+  "id": "whatsapp.read_last_message",
+  "version": 1,
+  "title": "Read my last WhatsApp message",
+  "app": "com.whatsapp",
+  "utterances": [
+    "read my last whatsapp message",
+    "what did i get on whatsapp",
+    "check whatsapp"
+  ],
+  "notes": "EXAMPLE, NOT DEVICE-VERIFIED. Selectors here are structural (roles and positions) rather than label-based, which survives localisation but assumes the chat list is the first scrollable list on screen. Must be confirmed against a real device before shipping.",
+  "steps": [
+    { "action": "launch", "app": "com.whatsapp" },
+    { "action": "waitFor", "selector": { "role": "LIST", "scrollable": true }, "timeoutMs": 10000 },
+    { "action": "tap", "selector": { "role": "LIST_ITEM", "index": 0 } },
+    { "action": "waitFor", "selector": { "role": "LIST" }, "timeoutMs": 8000 },
+    { "action": "capture", "selector": { "role": "LIST_ITEM", "index": -1 }, "as": "message" },
+    { "action": "speak", "template": "Last message: {message}" }
+  ]
+}

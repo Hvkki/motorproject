@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Package visibility.
+
+      An earlier draft used QUERY_ALL_PACKAGES. Lint rejects it, and Play grants
+      it to almost nobody, so Device.launchApp resolves launch intents only for
+      packages declared here.
+
+      IMPORTANT CONSEQUENCE for the skill-pack flywheel: this list lives in the
+      manifest, which means it is fixed at build time. A skill pack delivered
+      over the air CANNOT add support for an app that is not listed here — that
+      needs an app release. Keep this list ahead of the skill pack.
+
+      SkillPackTest enforces that every package referenced by a skill appears
+      below, so the two cannot silently drift apart.
+    -->
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.android.settings" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@drawable/ic_fingertip"
+        android:label="@string/app_name">
+
+        <service
+            android:name=".FingertipAccessibilityService"
+            android:exported="false"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/fingertip_accessibility_config" />
+        </service>
+    </application>
+
+</manifest>

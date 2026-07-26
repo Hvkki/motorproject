@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Fast gate: no Android SDK, so it runs in well under a minute and blocks every
+  # pull request. :android is skipped automatically when no SDK is present.
+  core:
+    name: Core tests and privacy guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # JDK 17: Gradle 8.14 does not run on JDK 25.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Runs first and cheaply: a screen-content leak is the most expensive
+      # mistake possible in this codebase, so fail fast on it.
+      - name: Privacy guard self-test
+        run: tools/privacy_guard.sh --self-test
+
+      - name: Privacy guard
+        run: tools/privacy_guard.sh
+
+      - name: Core tests
+        run: ./gradlew :core:test
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-report
+          path: core/build/reports/tests/test
+
+  android:
+    name: Android build and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Provides ANDROID_HOME; settings.gradle.kts then includes :android.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble debug APK
+        run: ./gradlew :android:assembleDebug
+
+      # Lint is what caught QUERY_ALL_PACKAGES, which Play would have rejected.
+      - name: Lint
+        run: ./gradlew :android:lintDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fingertip-debug-apk
+          path: android/build/outputs/apk/debug/*.apk
+
+      - name: Upload lint report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: android/build/reports/

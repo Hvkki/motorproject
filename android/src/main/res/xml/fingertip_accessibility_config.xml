@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Accessibility service configuration.
+
+  Every flag here is a deliberate choice about coexisting with TalkBack, which
+  virtually all of our users depend on for everything outside this app.
+
+  DELIBERATELY ABSENT, DO NOT ADD:
+    canRequestTouchExplorationMode  - would fight TalkBack for touch exploration
+                                      and make the phone unusable.
+    flagRequestTouchExplorationMode - same.
+    flagRequestFilterKeyEvents      - would swallow TalkBack's keyboard shortcuts.
+
+  isAccessibilityTool="true" declares to the system and to Play review that
+  assisting users with disabilities is this app's genuine and primary purpose.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackSpoken"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_service_description"
+    android:isAccessibilityTool="true"
+    tools:ignore="UnusedAttribute"
+    android:notificationTimeout="100"
+    android:summary="@string/accessibility_service_summary" />
