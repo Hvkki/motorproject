@@ -1,0 +1,24 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+
+# Android
+local.properties
+*.apk
+*.aab
+captures/
+.kaggle-work/
+fingertip-artifacts/
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Excludes everything from cloud backup and device-to-device transfer.
+
+  Fingertip's local state can include cached screen structure and skill run
+  history. None of that should ever leave the device through a backup channel,
+  where it would sit in cloud storage outside the user's attention and outside
+  the redaction boundary the rest of the app enforces.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

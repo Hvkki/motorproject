@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Fast gate: no Android SDK, so it runs in well under a minute and blocks every
+  # pull request. :android is skipped automatically when no SDK is present.
+  core:
+    name: Core tests and privacy guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # JDK 17: Gradle 8.14 does not run on JDK 25.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Runs first and cheaply: a screen-content leak is the most expensive
+      # mistake possible in this codebase, so fail fast on it.
+      - name: Privacy guard self-test
+        run: tools/privacy_guard.sh --self-test
+
+      - name: Privacy guard
+        run: tools/privacy_guard.sh
+
+      - name: Validate Kaggle kernel assets
+        run: python3 tools/validate_kaggle_kernel.py
+
+      - name: Core tests
+        run: ./gradlew :core:test
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-report
+          path: core/build/reports/tests/test
+
+  android:
+    name: Android build and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Provides ANDROID_HOME; settings.gradle.kts then includes :android.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Robolectric runs the real Android framework on the JVM in seconds, so the
+      # accessibility node-tree logic is verified without KVM or an emulator.
+      - name: Android JVM tests (Robolectric)
+        run: ./gradlew :android:testDebugUnitTest
+
+      - name: Assemble debug and instrumentation APKs
+        run: ./gradlew :android:assembleDebug :android:assembleDebugAndroidTest
+
+      # Lint is what caught QUERY_ALL_PACKAGES, which Play would have rejected.
+      - name: Lint
+        run: ./gradlew :android:lintDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fingertip-debug-apk
+          path: android/build/outputs/apk/debug/*.apk
+
+      - name: Upload lint and test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: android/build/reports/
+
+  # Real device tests. GitHub's Linux runners expose KVM, so a hardware-accelerated
+  # emulator boots here in minutes - unlike a software-only sandbox, where a full
+  # Android boot is effectively unbounded.
+  instrumentation:
+    name: Real Settings node-tree tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant KVM access to the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run instrumentation on an accelerated emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: ./gradlew :android:connectedDebugAndroidTest
+
+      - name: Upload instrumentation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumentation-report
+          path: android/build/reports/androidTests/

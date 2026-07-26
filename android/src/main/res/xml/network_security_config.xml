@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext traffic is refused outright.
+
+  Requests from this app carry an API key and a description of whatever is on the
+  user's screen. Belt and braces with UrlConnectionTransport, which also rejects
+  non-HTTPS URLs: a misconfigured custom gateway address should fail loudly rather
+  than quietly transmit screen contents in the clear.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
