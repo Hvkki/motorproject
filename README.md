@@ -60,7 +60,7 @@ This is enforced structurally, not by convention:
 ## Layout
 
 ```
-core/     Pure Kotlin/JVM. All logic. No Android imports. 121 tests.
+core/     Pure Kotlin/JVM. All logic. No Android imports. 181 tests.
 android/  AccessibilityService adapter. 18 Robolectric JVM tests + device tests.
 kaggle/   Private script-kernel metadata and cloud validation runner.
 skills/   The skill pack. One JSON file per task.
@@ -213,7 +213,37 @@ So the `AccessibilityNodeInfo` assumptions are no longer guesses.
   two example skills use guessed selectors marked `NOT DEVICE-VERIFIED`.
 - Speech output. `TtsSpeaker` has never spoken.
 
-**The reasoning tier — built and tested, needs a Planner supplied:**
+## No backend
+
+The app talks **directly** to whichever model provider the user chooses. There is
+no server of ours in the path: nothing to run, pay for, scale or patch, and nothing
+in the middle that could retain screen content.
+
+| | |
+|---|---|
+| Providers | Anthropic, Gemini, or any OpenAI-compatible endpoint |
+| Transport | `HttpsURLConnection`, zero third-party dependencies |
+| Key storage | `EncryptedSharedPreferences`, Android Keystore-backed |
+| Cleartext | Refused, in both the network config and the transport |
+
+The trade-off is honest: with no backend, the API key lives on the device. Keystore
+encryption defeats extraction from a backup or a plain preferences file. It does not
+defeat a rooted phone or malware running as this app — no client-side storage can.
+The key is the user's own and revocable at the provider.
+
+Kiro cannot serve as the on-device brain, and that is a property of Kiro rather than
+a shortcut taken here: `kiro-cli` does not run on Android and `KIRO_API_KEY`
+authenticates a local CLI process, not an HTTPS endpoint a phone can call.
+`KiroCliPlanner` is retained for desktop and CI use, where it is verified working
+end to end.
+
+### Offline
+
+Replaying a skill needs no network. Once a task has been learned it runs with no
+connection, and the reasoning tier fails with a clear spoken message instead of
+hanging. `INTERNET` is unused until a key is configured.
+
+**The reasoning tier — built and tested, needs a key configured:**
 
 `AgentLoop` pursues goals nobody wrote a skill for: observe the screen, decide one
 action, perform it, observe again. "Search Google for the weather" works with no
@@ -240,11 +270,9 @@ deterministic, which is why all of the above is tested with no API key.
 
 **Not built:**
 
-- **A `Planner` implementation.** The reasoning tier is inert until one is
-  supplied; the service passes `null` on purpose so unknown requests are declined
-  rather than improvised.
-- Voice input. Nothing calls `onSpokenRequest` yet, and `confirm` must be wired to
-  it before the agent can ever act on an irreversible step.
+- **Voice input.** Nothing calls `onSpokenRequest`, so today nothing can trigger
+  either tier from speech. This is the single remaining blocker to the app being
+  usable, and it is why `confirm` still denies everything.
 - Persisting learned skills. A recorded skill currently lives only as long as the
   service does — deliberately, since storing unreviewed automation that can tap
   "Pay" needs a review-and-revoke design first.

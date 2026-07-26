@@ -2,6 +2,8 @@ package dev.fingertip.android
 
 import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityEvent
+import dev.fingertip.core.agent.HttpPlanner
+import dev.fingertip.core.agent.UrlConnectionTransport
 import dev.fingertip.core.skill.SkillLibrary
 
 /**
@@ -43,24 +45,41 @@ class FingertipAccessibilityService : AccessibilityService() {
     private lateinit var device: AccessibilityDevice
     private lateinit var runner: SkillRunner
     private var speaker: TtsSpeaker? = null
+    private var agentSettings: AgentSettings? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
 
         device = AccessibilityDevice(this)
         val tts = TtsSpeaker(this).also { speaker = it }
+        val settings = AgentSettings(this).also { agentSettings = it }
+
         runner = SkillRunner(
             device = device,
             library = SkillPack.load(this),
             speaker = tts,
-            // Supply a model-backed Planner here to enable the reasoning tier.
-            // Left null deliberately: with no planner the service declines unknown
-            // requests instead of improvising, and improvising on someone's phone
-            // is how money gets spent by accident.
-            planner = null,
+            // The reasoning tier talks straight to the model provider from this
+            // device. There is no backend of ours in the path, so nothing in the
+            // middle can retain screen content.
+            //
+            // Null until a key is configured, so unknown requests are declined
+            // rather than improvised.
+            planner = if (settings.isAgentConfigured) {
+                HttpPlanner(
+                    provider = settings.provider(),
+                    // A lambda, not a value: the key is read from encrypted storage
+                    // per call, so removing it takes effect immediately.
+                    apiKey = { settings.apiKey },
+                    transport = UrlConnectionTransport(),
+                    config = HttpPlanner.Config(model = settings.model),
+                )
+            } else {
+                null
+            },
             // Must block until the user answers. Wire to the voice layer; denying
-            // by default means a missing prompt cannot authorise anything.
-            confirm = { false },
+            // by default means a missing prompt cannot authorise anything, and the
+            // user can forbid irreversible actions outright in settings.
+            confirm = { _ -> false },
             onSkillLearned = { skill ->
                 // Persisting learned skills is not implemented yet; until it is,
                 // a skill survives only for the current service lifetime.

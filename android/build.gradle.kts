@@ -86,6 +86,10 @@ dependencies {
     implementation(project(":core"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
+    // Encrypted-at-rest storage for the model API key. With no backend the key
+    // lives on the device, so it must not sit in a plain preferences file.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // Fast tier: real Android framework classes on the JVM, seconds per run.
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test.ext:junit:1.2.1")
