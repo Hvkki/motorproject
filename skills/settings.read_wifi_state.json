@@ -1,0 +1,26 @@
+{
+  "id": "settings.read_wifi_state",
+  "version": 1,
+  "title": "Check whether Wi-Fi is on",
+  "app": "com.android.settings",
+  "utterances": [
+    "is wifi on",
+    "check wifi",
+    "what is my wifi status"
+  ],
+  "notes": "EXAMPLE, NOT DEVICE-VERIFIED. Settings layouts differ substantially between OEM skins (Samsung One UI nests this differently from stock), so this skill is the clearest illustration of why the library needs per-device regression runs.",
+  "steps": [
+    { "action": "launch", "app": "com.android.settings" },
+    { "action": "waitFor", "selector": { "labelContains": "Network" }, "timeoutMs": 8000 },
+    { "action": "tap", "selector": { "labelContains": "Network" } },
+    { "action": "waitFor", "selector": { "labelContains": "Wi-Fi" }, "timeoutMs": 8000 },
+    {
+      "action": "capture",
+      "selector": { "labelContains": "Wi-Fi", "role": "SWITCH" },
+      "as": "wifi",
+      "field": "LABEL",
+      "optional": true
+    },
+    { "action": "speak", "template": "Wi-Fi setting: {wifi}" }
+  ]
+}
