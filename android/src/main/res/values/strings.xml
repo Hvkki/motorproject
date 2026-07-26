@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fingertip</string>
+
+    <string name="accessibility_service_label">Fingertip</string>
+
+    <string name="accessibility_service_summary">Operates apps for you, by voice</string>
+
+    <!--
+      Shown on the system permission screen. This is the "prominent disclosure"
+      Play policy requires, so it must be specific about what is read and where it
+      goes - not boilerplate. It is also read aloud by TalkBack, so it is written
+      to be heard rather than skimmed.
+    -->
+    <string name="accessibility_service_description">Fingertip reads what is on your screen and taps, types and swipes for you when you ask it to, so you can use any app by voice.\n\nScreen contents stay on your device while Fingertip is carrying out a task you asked for. If Fingertip gets stuck and needs help working out a new task, it sends a description of the current screen for analysis, with passwords, card numbers and one-time codes removed first. It will tell you how many values were hidden.\n\nFingertip never turns on screen exploration and never takes over your usual screen reader.</string>
+</resources>

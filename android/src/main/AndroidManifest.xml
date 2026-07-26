@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      QUERY_ALL_PACKAGES is needed by Device.launchApp to resolve launch intents
+      for arbitrary apps. Google Play requires a declared justification for this
+      permission; for an accessibility tool whose purpose is operating other apps
+      on the user's behalf, that justification is the core function of the app.
+
+      If review pushes back, the narrower alternative is a <queries> element
+      listing supported packages explicitly, regenerated from the skill pack.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name">
+
+        <service
+            android:name=".FingertipAccessibilityService"
+            android:exported="false"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/fingertip_accessibility_config" />
+        </service>
+    </application>
+
+</manifest>
