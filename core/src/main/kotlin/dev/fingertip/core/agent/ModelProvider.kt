@@ -46,6 +46,8 @@ sealed interface ModelProvider {
             "anthropic", "claude" -> Anthropic
             "gemini", "google" -> Gemini
             "openai" -> OpenAiCompatible()
+            // Needs a base URL, so it cannot be built from a name alone.
+            "kiro" -> null
             else -> null
         }
     }
@@ -143,6 +145,58 @@ data object Gemini : ModelProvider {
     override fun extractError(responseBody: String): String? = runCatching {
         ModelProvider.json.parseToJsonElement(responseBody)
             .jsonObject["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
+    }.getOrNull()
+}
+
+/**
+ * A self-hosted bridge that runs `kiro-cli` on the caller's own machine.
+ *
+ * This is how a phone uses a Kiro subscription. `KIRO_API_KEY` authenticates a
+ * local CLI process rather than an HTTPS endpoint, so something has to run the CLI
+ * — see `bridge/kiro_bridge.py`.
+ *
+ * The Kiro key never leaves the bridge host. The device holds only a bridge token,
+ * separate on purpose: it rotates independently, and a compromised phone costs a
+ * token rather than the subscription.
+ *
+ * The default model was chosen by measurement rather than reputation. On this
+ * workload `claude-haiku-4.5` was both the fastest and fully correct on a
+ * multi-item parsing task.
+ */
+data class KiroBridge(
+    /** Base URL of your bridge, e.g. `https://abc123.ngrok.app`. */
+    private val baseUrl: String,
+    override val defaultModel: String = "claude-haiku-4.5",
+    /** Kiro effort level. `low` is ample for choosing a single action. */
+    private val effort: String = "low",
+) : ModelProvider {
+    override val name = "kiro"
+
+    override fun endpoint(model: String) = "${baseUrl.trimEnd('/')}/plan"
+
+    override fun headers(apiKey: String) = mapOf(
+        // This is the bridge token, not the Kiro key.
+        "Authorization" to "Bearer $apiKey",
+        "content-type" to "application/json",
+    )
+
+    override fun body(model: String, systemPrompt: String, userPrompt: String, maxTokens: Int): String =
+        buildJsonObject {
+            put("model", model)
+            put("effort", effort)
+            // The bridge joins these: kiro-cli takes a single prompt argument.
+            put("system", systemPrompt)
+            put("prompt", userPrompt)
+        }.toString()
+
+    override fun extractText(responseBody: String): String? = runCatching {
+        ModelProvider.json.parseToJsonElement(responseBody)
+            .jsonObject["text"]!!.jsonPrimitive.content
+    }.getOrNull()
+
+    override fun extractError(responseBody: String): String? = runCatching {
+        ModelProvider.json.parseToJsonElement(responseBody)
+            .jsonObject["error"]?.jsonPrimitive?.content
     }.getOrNull()
 }
 

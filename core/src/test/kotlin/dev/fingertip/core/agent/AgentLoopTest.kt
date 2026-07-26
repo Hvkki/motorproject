@@ -108,7 +108,10 @@ class AgentLoopTest {
             spoken.any { "34 degrees" in it },
             "the answer was never spoken aloud: $spoken",
         )
-        assertContains(success.spoken.last(), "top result")
+        assertTrue(success.spoken.any { "top result" in it }, "summary not spoken: ${success.spoken}")
+        // How long it took is the last thing said, and the only progress signal on
+        // a long task.
+        assertContains(success.spoken.last(), "Took")
     }
 
     @Test

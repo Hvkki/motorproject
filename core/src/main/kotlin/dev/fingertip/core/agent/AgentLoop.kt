@@ -117,6 +117,8 @@ class AgentLoop(
         val maxConsecutiveFailures: Int = 3,
         /** Narrate each action. Useful while learning, chatty once trusted. */
         val announceActions: Boolean = false,
+        /** Say how long the task took once it succeeds. */
+        val announceDuration: Boolean = true,
     )
 
     private val spoken = mutableListOf<String>()
@@ -176,6 +178,13 @@ class AgentLoop(
             when (decision) {
                 is PlanDecision.Done -> {
                     if (decision.summary.isNotBlank()) speakNow(decision.summary)
+                    if (config.announceDuration) {
+                        // How long it took is genuinely useful feedback: it tells the
+                        // user whether the agent worked or merely thought about it,
+                        // and it is the only progress signal on a long task.
+                        val elapsed = device.nowMs() - startedAt
+                        speakNow("Took ${speech.describeDuration(elapsed)}.")
+                    }
                     return AgentResult.Success(
                         summary = decision.summary,
                         trajectory = trajectory.toList(),

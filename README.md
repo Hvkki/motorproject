@@ -1,7 +1,12 @@
 # Fingertip
 
-A voice-driven Android agent that operates apps for blind users — it reads the
-screen and taps, types and swipes on request.
+An Android agent that operates apps by voice or text: it reads the screen and taps,
+types and swipes on request.
+
+Built accessibility-first, because a blind user is the hardest case and getting it
+right there makes it better for everyone. It is not limited to that — hands-free
+use, repetitive workflows, and pulling data out of apps that expose no API are all
+the same machinery.
 
 This repository is a **prototype of the architecture**, not a shippable app. The
 core is fully tested, the Android APK and instrumentation APK compile, and the
@@ -60,7 +65,8 @@ This is enforced structurally, not by convention:
 ## Layout
 
 ```
-core/     Pure Kotlin/JVM. All logic. No Android imports. 181 tests.
+core/     Pure Kotlin/JVM. All logic. No Android imports. 190 tests.
+bridge/   Optional self-hosted Kiro relay (Python, stdlib only).
 android/  AccessibilityService adapter. 18 Robolectric JVM tests + device tests.
 kaggle/   Private script-kernel metadata and cloud validation runner.
 skills/   The skill pack. One JSON file per task.
@@ -213,7 +219,40 @@ So the `AccessibilityNodeInfo` assumptions are no longer guesses.
   two example skills use guessed selectors marked `NOT DEVICE-VERIFIED`.
 - Speech output. `TtsSpeaker` has never spoken.
 
-## No backend
+## Using a Kiro subscription
+
+`KIRO_API_KEY` authenticates a local `kiro-cli` process, not an HTTPS endpoint, so a
+phone cannot use it directly. `bridge/kiro_bridge.py` closes that gap: run it on any
+machine you control — a VM, a home server, a notebook session behind a tunnel — and
+the app calls that.
+
+See `bridge/kiro_bridge.py --help` for the exact invocation. In short: set
+`KIRO_API_KEY` and a `FINGERTIP_BRIDGE_TOKEN`, start it, expose it over TLS, then
+verify with `python3 bridge/test_bridge.py`.
+
+In the app choose provider `kiro`, give it the bridge URL, and use the **bridge
+token** as the key.
+
+The two credentials are separate on purpose. The Kiro key never leaves the machine
+running the relay, so a compromised phone costs you a rotatable token rather than
+your subscription. The relay logs only method, path and status — never request
+bodies, since those describe the user's screen.
+
+### Model choice, measured
+
+Same decision task plus a multi-item parsing task, through the relay:
+
+| model | latency | hard parsing task |
+|---|---|---|
+| **claude-haiku-4.5** (default) | **2.4s** | correct |
+| claude-sonnet-4.6 | 2.9s | correct |
+| claude-sonnet-5 | 3.3s | correct |
+| gpt-5.6-luna | 3.4s | correct |
+
+All four were correct, so the default is simply the fastest. Override it in
+settings. Effort is `low`, which is ample for choosing one action.
+
+## No backend required
 
 The app talks **directly** to whichever model provider the user chooses. There is
 no server of ours in the path: nothing to run, pay for, scale or patch, and nothing

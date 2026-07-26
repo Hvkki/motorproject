@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import dev.fingertip.core.agent.KiroBridge
 import dev.fingertip.core.agent.ModelProvider
 import dev.fingertip.core.agent.OpenAiCompatible
 
@@ -74,8 +75,23 @@ class AgentSettings(context: Context) {
         get() = preferences.getBoolean(KEY_ALLOW_IRREVERSIBLE, false)
         set(value) = preferences.edit().putBoolean(KEY_ALLOW_IRREVERSIBLE, value).apply()
 
+    /**
+     * Base URL of a self-hosted Kiro bridge, when using a Kiro subscription.
+     *
+     * The device stores only the bridge token in [apiKey]; the Kiro key itself
+     * never leaves the bridge host.
+     */
+    var kiroBridgeUrl: String?
+        get() = preferences.getString(KEY_KIRO_URL, null)?.takeIf { it.isNotBlank() }
+        set(value) = preferences.edit().putString(KEY_KIRO_URL, value?.trim()).apply()
+
     /** Resolves the configured provider, falling back to the default. */
     fun provider(): ModelProvider {
+        if (providerName.equals("kiro", ignoreCase = true)) {
+            val url = kiroBridgeUrl
+                ?: return ModelProvider.byName(DEFAULT_PROVIDER)!!
+            return KiroBridge(baseUrl = url, defaultModel = model ?: DEFAULT_KIRO_MODEL)
+        }
         val configured = ModelProvider.byName(providerName)
         return when {
             configured is OpenAiCompatible && openAiBaseUrl != null ->
@@ -85,6 +101,11 @@ class AgentSettings(context: Context) {
         }
     }
 
+    /** True when the reasoning tier is usable: a key plus, for Kiro, a bridge URL. */
+    val isProviderReachable: Boolean
+        get() = isAgentConfigured &&
+            (!providerName.equals("kiro", ignoreCase = true) || kiroBridgeUrl != null)
+
     private companion object {
         const val FILE_NAME = "fingertip_agent_settings"
         const val KEY_API_KEY = "model_api_key"
@@ -92,6 +113,13 @@ class AgentSettings(context: Context) {
         const val KEY_MODEL = "model_name"
         const val KEY_BASE_URL = "openai_base_url"
         const val KEY_ALLOW_IRREVERSIBLE = "allow_irreversible"
+        const val KEY_KIRO_URL = "kiro_bridge_url"
         const val DEFAULT_PROVIDER = "gemini"
+
+        /**
+         * Chosen by measurement, not reputation: on this workload it was both the
+         * fastest of the Kiro models and fully correct on a multi-item parsing task.
+         */
+        const val DEFAULT_KIRO_MODEL = "claude-haiku-4.5"
     }
 }

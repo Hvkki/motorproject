@@ -149,6 +149,24 @@ class StepExecutor(
                 }
             }
 
+            is CaptureAll -> {
+                // No implicit wait: an empty list is a legitimate answer ("you have
+                // no unread messages"), not a failure to be retried.
+                val snapshot = device.snapshot()
+                val values = step.selector.findAll(snapshot)
+                    .take(step.limit)
+                    .map { node ->
+                        when (step.field) {
+                            Field.TEXT -> node.text.orEmpty()
+                            Field.DESC -> node.contentDescription.orEmpty()
+                            Field.LABEL -> node.label.orEmpty()
+                        }
+                    }
+                    .filter { it.isNotBlank() }
+                captures[step.name] = values.joinToString(step.separator)
+                captures["${step.name}_count"] = values.size.toString()
+            }
+
             is Speak -> {
                 val missing = speech.placeholdersIn(step.template) - captures.keys
                 if (missing.isNotEmpty()) {

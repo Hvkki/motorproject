@@ -64,7 +64,7 @@ class FingertipAccessibilityService : AccessibilityService() {
             //
             // Null until a key is configured, so unknown requests are declined
             // rather than improvised.
-            planner = if (settings.isAgentConfigured) {
+            planner = if (settings.isProviderReachable) {
                 HttpPlanner(
                     provider = settings.provider(),
                     // A lambda, not a value: the key is read from encrypted storage

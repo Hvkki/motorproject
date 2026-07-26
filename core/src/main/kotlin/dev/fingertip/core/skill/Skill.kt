@@ -155,6 +155,27 @@ data class Capture(
     override val describe get() = "read $name"
 }
 
+/**
+ * Reads every matching element into one named variable.
+ *
+ * The difference between "read my last message" and "total up what I spent on
+ * groceries". Harder tasks need the whole list, not one element, and doing that
+ * with repeated single captures would cost one model call per row.
+ */
+@Serializable
+@SerialName("captureAll")
+data class CaptureAll(
+    val selector: Selector,
+    @SerialName("as") val name: String,
+    val field: Field = Field.LABEL,
+    /** Joins the values. Newline keeps them readable to a model and to a person. */
+    val separator: String = "\n",
+    /** Guards against pulling thousands of rows into one prompt. */
+    val limit: Int = 50,
+) : Step {
+    override val describe get() = "read all $name"
+}
+
 /** Speaks a template such as `"Last message: {message}"`. */
 @Serializable
 @SerialName("speak")

@@ -75,6 +75,18 @@ object SkillValidator {
                     }
                 }
 
+                is CaptureAll -> {
+                    if (step.name.isBlank()) {
+                        problems += Problem(Severity.ERROR, index, "CaptureAll has a blank name")
+                    }
+                    if (step.limit <= 0) {
+                        problems += Problem(Severity.ERROR, index, "CaptureAll limit must be positive")
+                    }
+                    available.add(step.name)
+                    // The executor also publishes a count alongside the values.
+                    available.add("${step.name}_count")
+                }
+
                 is Speak -> {
                     val missing = speech.placeholdersIn(step.template) - available
                     if (missing.isNotEmpty()) {

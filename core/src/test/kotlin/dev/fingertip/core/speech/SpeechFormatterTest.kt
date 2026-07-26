@@ -155,6 +155,20 @@ class SpeechFormatterTest {
     }
 
     @Test
+    fun `describes durations the way someone waiting would want to hear them`() {
+        assertEquals("instantly", speech.describeDuration(0))
+        assertEquals("instantly", speech.describeDuration(999))
+        assertEquals("1 second", speech.describeDuration(1_000))
+        assertEquals("45 seconds", speech.describeDuration(45_000))
+        assertEquals("1 minute", speech.describeDuration(60_000))
+        assertEquals("1 minute 5 seconds", speech.describeDuration(65_000))
+        assertEquals("2 minutes", speech.describeDuration(120_000))
+        assertEquals("3 minutes 20 seconds", speech.describeDuration(200_000))
+        // Rounds rather than truncating: 1999ms is closer to two seconds.
+        assertEquals("2 seconds", speech.describeDuration(1_900))
+    }
+
+    @Test
     fun `describes nodes the way a person would`() {
         assertEquals("Send, button", speech.describeNode(Nodes.button("Send")))
         assertEquals("Password, password field", speech.describeNode(Nodes.editText("Password", isPassword = true)))

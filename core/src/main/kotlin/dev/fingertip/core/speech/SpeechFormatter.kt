@@ -107,6 +107,25 @@ class SpeechFormatter(private val options: Options = Options()) {
         return if (cut > options.maxSpokenChars / 2) hard.take(cut + 1) else "${hard.trimEnd()}\u2026"
     }
 
+    /**
+     * Human phrasing for a duration, e.g. "1 minute 5 seconds".
+     *
+     * Rounded rather than precise: "about 2 minutes" is what someone waiting
+     * actually wants, and milliseconds spoken aloud are noise. Sub-second work is
+     * described as instant, because saying "0 seconds" sounds broken.
+     */
+    fun describeDuration(millis: Long): String {
+        if (millis < 1_000) return "instantly"
+        val totalSeconds = (millis + 500) / 1_000
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return when {
+            minutes == 0L -> "$seconds second${plural(seconds.toInt())}"
+            seconds == 0L -> "$minutes minute${plural(minutes.toInt())}"
+            else -> "$minutes minute${plural(minutes.toInt())} $seconds second${plural(seconds.toInt())}"
+        }
+    }
+
     /** Reads a single node the way a person would refer to it. */
     fun describeNode(node: Node): String {
         val label = node.label?.let(::clean) ?: "unlabelled ${node.role.wire}"
