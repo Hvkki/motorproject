@@ -20,9 +20,10 @@ Fingertip splits the problem in two:
 | | Fast tier | Slow tier |
 |---|---|---|
 | Handles | Known tasks (~95%) | Novel tasks |
-| Mechanism | Replays a **skill** deterministically | A reasoning agent explores and **writes a skill** |
+| Mechanism | `SkillInterpreter` replays a **skill** deterministically | `AgentLoop` reasons over the screen and **writes a skill** |
 | Cost | Zero | Once per task *type* |
 | Latency | Local, immediate | Seconds, occasionally |
+| Model calls | None | One per action |
 
 The reasoning agent's output is **code, not clicks**. A
 [skill](skills/whatsapp.read_last_message.json) is reviewable JSON: steps,
@@ -59,7 +60,7 @@ This is enforced structurally, not by convention:
 ## Layout
 
 ```
-core/     Pure Kotlin/JVM. All logic. No Android imports. 98 tests.
+core/     Pure Kotlin/JVM. All logic. No Android imports. 121 tests.
 android/  AccessibilityService adapter. 18 Robolectric JVM tests + device tests.
 kaggle/   Private script-kernel metadata and cloud validation runner.
 skills/   The skill pack. One JSON file per task.
@@ -212,10 +213,40 @@ So the `AccessibilityNodeInfo` assumptions are no longer guesses.
   two example skills use guessed selectors marked `NOT DEVICE-VERIFIED`.
 - Speech output. `TtsSpeaker` has never spoken.
 
+**The reasoning tier — built and tested, needs a Planner supplied:**
+
+`AgentLoop` pursues goals nobody wrote a skill for: observe the screen, decide one
+action, perform it, observe again. "Search Google for the weather" works with no
+recipe. Its action vocabulary *is* the skill format, so a successful run is
+compiled by `SkillRecorder` into a replayable skill — the next time the same
+request arrives it takes the fast path with **zero planner calls**. There is a
+test that does exactly that end to end.
+
+Safety is in the loop, not left to the model:
+
+- **Irreversible actions are confirmed first.** A sighted user can see "Send £400"
+  under their thumb and stop; someone relying on a screen reader is trusting the
+  agent's description, so `RiskPolicy` gates committing taps and **denies by
+  default** when no prompt is wired up.
+- **Loop detection.** Repeating an action on an unchanged screen aborts, because
+  tapping a dead button forever reads as unexplained silence.
+- **Budgets** on planner calls, wall clock, and consecutive failures.
+- **Failures are fed back** to the planner so it can route around them.
+- The planner receives only a `RedactedSnapshot`, so it is structurally incapable
+  of seeing a password or one-time code.
+
+`Planner` is the single seam a language model plugs into. Everything around it is
+deterministic, which is why all of the above is tested with no API key.
+
 **Not built:**
 
-- Voice input. Nothing calls `onSpokenRequest` yet.
-- The escalation hook. `SkillRunner.escalation` is a stub — this is where the
-  reasoning agent would author new skills.
+- **A `Planner` implementation.** The reasoning tier is inert until one is
+  supplied; the service passes `null` on purpose so unknown requests are declined
+  rather than improvised.
+- Voice input. Nothing calls `onSpokenRequest` yet, and `confirm` must be wired to
+  it before the agent can ever act on an irreversible step.
+- Persisting learned skills. A recorded skill currently lives only as long as the
+  service does — deliberately, since storing unreviewed automation that can tap
+  "Pay" needs a review-and-revoke design first.
 - Earcons for tool activity.
 - `isSecureWindow()` is a stub returning `false`.

@@ -53,9 +53,20 @@ class FingertipAccessibilityService : AccessibilityService() {
             device = device,
             library = SkillPack.load(this),
             speaker = tts,
+            // Supply a model-backed Planner here to enable the reasoning tier.
+            // Left null deliberately: with no planner the service declines unknown
+            // requests instead of improvising, and improvising on someone's phone
+            // is how money gets spent by accident.
+            planner = null,
+            // Must block until the user answers. Wire to the voice layer; denying
+            // by default means a missing prompt cannot authorise anything.
+            confirm = { false },
+            onSkillLearned = { skill ->
+                // Persisting learned skills is not implemented yet; until it is,
+                // a skill survives only for the current service lifetime.
+                SkillPack.remember(skill)
+            },
         )
-        // Wire this to the model-backed explorer that authors new skills.
-        runner.escalation = SkillRunner.Escalation { _, _ -> /* see docs/architecture.md */ }
     }
 
     /**
@@ -94,6 +105,18 @@ class FingertipAccessibilityService : AccessibilityService() {
 
 /** Loads the bundled skill pack. Replace with a versioned pack synced from the skills repo. */
 private object SkillPack {
+
+    /**
+     * Hook for persisting a skill the agent just learned.
+     *
+     * Deliberately a no-op rather than a silent write: a recorded skill has not
+     * been reviewed by anyone, and storing unreviewed automation that can tap
+     * "Pay" deserves an explicit design decision about review and revocation.
+     */
+    fun remember(skill: dev.fingertip.core.skill.Skill) {
+        check(skill.steps.isNotEmpty()) { "refusing to remember an empty skill" }
+    }
+
     fun load(service: AccessibilityService): SkillLibrary {
         val documents = service.assets.list("skills")
             ?.filter { it.endsWith(".json") }
