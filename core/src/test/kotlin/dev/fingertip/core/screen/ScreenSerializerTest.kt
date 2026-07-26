@@ -113,6 +113,54 @@ class ScreenSerializerTest {
     }
 
     @Test
+    fun `a password field keeps its hint instead of showing the placeholder`() {
+        // Rendering edit_text "[redacted]" would lose the only clue about what
+        // the field is for, leaving the agent unable to direct the user.
+        val out = render(
+            ScreenSnapshot.of(
+                "com.example.bank",
+                Nodes.container(Nodes.editText(hint = "Password", value = "hunter2", isPassword = true)),
+            ),
+        )
+
+        val line = out.lines().first { "edit_text" in it }
+        assertContains(line, "\"Password\"")
+        assertTrue("[redacted]" !in line, line)
+        assertContains(line, "password")
+        // Whether a value is present is still worth knowing.
+        assertContains(line, "filled")
+    }
+
+    @Test
+    fun `an empty password field is not reported as filled`() {
+        val out = render(
+            ScreenSnapshot.of(
+                "com.example.bank",
+                Nodes.container(Nodes.editText(hint = "Password", isPassword = true)),
+            ),
+        )
+
+        val line = out.lines().first { "edit_text" in it }
+        assertTrue("filled" !in line, line)
+    }
+
+    @Test
+    fun `disabled elements advertise no actions`() {
+        // Selector refuses to match disabled nodes, so describing one as tappable
+        // would lead the agent into an unexplained not-found failure.
+        val out = render(
+            ScreenSnapshot.of(
+                "com.example",
+                Nodes.container(Nodes.button("Statements", enabled = false)),
+            ),
+        )
+
+        val line = out.lines().first { "Statements" in it }
+        assertContains(line, "disabled")
+        assertTrue("(tap" !in line && ",tap" !in line, "disabled button offered a tap action: $line")
+    }
+
+    @Test
     fun `notes how many values were redacted`() {
         val out = render(
             ScreenSnapshot.of(

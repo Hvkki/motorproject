@@ -73,7 +73,7 @@ Users depend on TalkBack for everything outside this app. It must keep winning.
 
 ```bash
 export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))  # needs JDK 17-21
-./gradlew :core:test          # 93 tests, no Android SDK required
+./gradlew :core:test          # 97 tests, no Android SDK required
 tools/privacy_guard.sh        # must print "clean"
 tools/privacy_guard.sh --self-test
 ```

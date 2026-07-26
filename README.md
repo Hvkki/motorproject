@@ -58,7 +58,7 @@ This is enforced structurally, not by convention:
 ## Layout
 
 ```
-core/     Pure Kotlin/JVM. All logic. No Android imports. 93 tests.
+core/     Pure Kotlin/JVM. All logic. No Android imports. 97 tests.
 android/  Thin AccessibilityService adapter over the Device port. UNCOMPILED.
 skills/   The skill pack. One JSON file per task.
 tools/    privacy_guard.sh
@@ -84,7 +84,7 @@ No Android SDK required: `:android` is deliberately excluded from
 
 ## Status
 
-**Done and verified — 93 passing tests:**
+**Done and verified — 97 passing tests:**
 
 - Screen model, selector engine, node-tree serializer
 - Redaction with the type-level egress guarantee

@@ -56,8 +56,11 @@ class SpeechFormatter(private val options: Options = Options()) {
         val items = snapshot.nodes.filter { it.visible && it.role == Role.LIST_ITEM && it.label != null }
         if (items.isNotEmpty()) {
             val shown = items.take(options.maxItems).mapNotNull { it.label }.map(::clean)
-            parts += "${items.size} item${plural(items.size)}: ${shown.joinToString("; ")}"
-            if (items.size > shown.size) parts += "and ${items.size - shown.size} more."
+            // Terminate the sentence properly: without punctuation, TTS runs the
+            // last item straight into whatever follows.
+            val remainder = items.size - shown.size
+            val tail = if (remainder > 0) ", and $remainder more." else "."
+            parts += "${items.size} item${plural(items.size)}: ${shown.joinToString("; ")}$tail"
         } else {
             val actions = snapshot.nodes
                 .filter { it.visible && it.enabled && it.clickable && it.label != null }

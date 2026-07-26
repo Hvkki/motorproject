@@ -57,16 +57,28 @@ class ScreenSerializer(private val options: Options = Options()) {
 
     private fun render(node: Node): String = buildString {
         append('[').append(node.handle).append("] ").append(node.role.wire)
-        node.label?.let { append(' ').append('"').append(ellipsise(it)).append('"') }
+        displayLabel(node)?.let { append(' ').append('"').append(ellipsise(it)).append('"') }
 
         val flags = buildList {
-            if (node.clickable) add("tap")
-            if (node.longClickable) add("longpress")
-            if (node.editable) add("type")
-            if (node.scrollable) add("scroll")
+            // Disabled elements advertise no actions. Selector.findAll refuses to
+            // match them, so listing them as tappable would invite the agent to
+            // "tap" something and get an unexplained not-found failure.
+            if (node.enabled) {
+                if (node.clickable) add("tap")
+                if (node.longClickable) add("longpress")
+                if (node.editable) add("type")
+                if (node.scrollable) add("scroll")
+            } else {
+                add("disabled")
+            }
             if (node.focused) add("focused")
             node.checked?.let { add(if (it) "checked" else "unchecked") }
-            if (node.isPassword) add("password")
+            if (node.isPassword) {
+                add("password")
+                // The value is masked, but whether one exists is still useful:
+                // it is the difference between "type the password" and "submit".
+                if (!node.text.isNullOrEmpty()) add("filled")
+            }
         }
         if (flags.isNotEmpty()) flags.joinTo(this, separator = ",", prefix = " (", postfix = ")")
 
@@ -75,6 +87,24 @@ class ScreenSerializer(private val options: Options = Options()) {
                 .append('-').append(node.bounds.right).append(',').append(node.bounds.bottom)
         }
     }
+
+    /**
+     * Label to show for a node.
+     *
+     * [Node.label] prefers visible text, which is right almost everywhere but
+     * wrong for password fields: after redaction their text is the placeholder,
+     * so preferring it would render `edit_text "[redacted]"` and throw away the
+     * hint that says what the field is actually for. Fall back to the
+     * description so the agent can still tell the user where to type.
+     */
+    private fun displayLabel(node: Node): String? =
+        if (node.isPassword) {
+            node.contentDescription?.takeIf { it.isNotBlank() }
+                ?: node.viewId?.takeIf { it.isNotBlank() }
+                ?: node.label
+        } else {
+            node.label
+        }
 
     private fun ellipsise(text: String): String {
         val flat = text.replace(WHITESPACE, " ").trim()

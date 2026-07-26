@@ -85,7 +85,24 @@ class SpeechFormatterTest {
         val described = speech.describeScreen(redactor.redact(snapshot))
 
         assertContains(described, "12 items")
-        assertContains(described, "more")
+        assertContains(described, ", and 7 more.")
+    }
+
+    @Test
+    fun `the item list ends with punctuation so speech does not run on`() {
+        val snapshot = ScreenSnapshot.of(
+            "com.example.bank",
+            Nodes.container(
+                Nodes.list(Nodes.listItem("Current account"), label = "Accounts"),
+                Nodes.editText(hint = "Password", value = "x", isPassword = true),
+            ),
+            title = "Accounts",
+        )
+
+        val described = speech.describeScreen(redactor.redact(snapshot))
+
+        // Without the full stop, TTS reads "...Current account 1 sensitive value hidden".
+        assertContains(described, "Current account. ")
     }
 
     @Test
